@@ -7,7 +7,7 @@ A native Android music-player foundation built with Kotlin, Jetpack Compose, and
 - Reads on-device audio through Android MediaStore after the user grants audio permission.
 - Performs the MediaStore query on an IO dispatcher rather than blocking the UI thread.
 - Plays local tracks through an ExoPlayer hosted in a MediaSessionService.
-- Builds a queue from the local library and provides previous/next playback controls.
+- Builds a queue from the local library, exposes a queue screen, and provides previous/next playback controls.
 - Includes a mini-player and a dedicated Now Playing screen with seeking, shuffle, and repeat modes.
 - Saves liked local tracks with Preferences DataStore and filters the Library to liked songs.
 - Searches local track title, artist, and album metadata.

@@ -14,6 +14,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -69,6 +70,9 @@ private fun UnifiedMusicApp() {
     var libraryFilter by remember { mutableStateOf("All") }
     var localTracks by remember { mutableStateOf<List<Track>>(emptyList()) }
     var controller by remember { mutableStateOf<MediaController?>(null) }
+    var queueItems by remember { mutableStateOf<List<MediaItem>>(emptyList()) }
+    var currentQueueIndex by remember { mutableIntStateOf(0) }
+    var showQueueScreen by remember { mutableStateOf(false) }
     var permissionDenied by remember { mutableStateOf(false) }
     var isLoadingLibrary by remember { mutableStateOf(false) }
     var libraryError by remember { mutableStateOf<String?>(null) }
@@ -154,6 +158,10 @@ private fun UnifiedMusicApp() {
                 durationMs = if (currentDuration != C.TIME_UNSET && currentDuration > 0L) currentDuration else 0L
                 shuffleEnabled = activeController.shuffleModeEnabled
                 repeatMode = activeController.repeatMode
+                queueItems = List(activeController.mediaItemCount) { index ->
+                    activeController.getMediaItemAt(index)
+                }
+                currentQueueIndex = activeController.currentMediaItemIndex.coerceAtLeast(0)
             }
 
             val listener = object : Player.Listener {
@@ -166,6 +174,13 @@ private fun UnifiedMusicApp() {
                 }
 
                 override fun onPlaybackStateChanged(playbackState: Int) {
+                    syncPlaybackState()
+                }
+
+                override fun onTimelineChanged(
+                    timeline: androidx.media3.common.Timeline,
+                    reason: Int
+                ) {
                     syncPlaybackState()
                 }
 
@@ -196,7 +211,11 @@ private fun UnifiedMusicApp() {
     }
 
     BackHandler(enabled = showNowPlaying) {
-        showNowPlaying = false
+        if (showQueueScreen) {
+            showQueueScreen = false
+        } else {
+            showNowPlaying = false
+        }
     }
 
     val results = remember(query, localTracks) {
@@ -323,44 +342,63 @@ private fun UnifiedMusicApp() {
             }
         ) { padding ->
             if (showNowPlaying) {
-                NowPlayingScreen(
-                    title = nowPlayingTitle ?: "Nothing playing",
-                    artist = nowPlayingArtist ?: "Choose a track from your library",
-                    isPlaying = isPlaying,
-                    positionMs = playbackPositionMs,
-                    durationMs = durationMs,
-                    shuffleEnabled = shuffleEnabled,
-                    repeatMode = repeatMode,
-                    onBack = { showNowPlaying = false },
-                    onSeekPreview = {
-                        playbackPositionMs = it
-                        isScrubbing = true
-                    },
-                    onSeekFinished = {
-                        controller?.seekTo(playbackPositionMs)
-                        isScrubbing = false
-                    },
-                    onPrevious = { controller?.seekToPreviousMediaItem() },
-                    onPlayPause = {
-                        controller?.let { player ->
-                            if (player.isPlaying) player.pause() else player.play()
-                        }
-                    },
-                    onNext = { controller?.seekToNextMediaItem() },
-                    onShuffle = {
-                        controller?.let { player -> player.shuffleModeEnabled = !player.shuffleModeEnabled }
-                    },
-                    onRepeat = {
-                        controller?.let { player ->
-                            player.repeatMode = when (player.repeatMode) {
-                                Player.REPEAT_MODE_OFF -> Player.REPEAT_MODE_ALL
-                                Player.REPEAT_MODE_ALL -> Player.REPEAT_MODE_ONE
-                                else -> Player.REPEAT_MODE_OFF
+                if (showQueueScreen) {
+                    QueueScreen(
+                        queueItems = queueItems,
+                        currentQueueIndex = currentQueueIndex,
+                        onBack = { showQueueScreen = false },
+                        onSelect = { index ->
+                            controller?.seekTo(index, C.TIME_UNSET)
+                            controller?.play()
+                            showQueueScreen = false
+                        },
+                        modifier = Modifier.padding(padding)
+                    )
+                } else {
+                    NowPlayingScreen(
+                        title = nowPlayingTitle ?: "Nothing playing",
+                        artist = nowPlayingArtist ?: "Choose a track from your library",
+                        isPlaying = isPlaying,
+                        positionMs = playbackPositionMs,
+                        durationMs = durationMs,
+                        shuffleEnabled = shuffleEnabled,
+                        repeatMode = repeatMode,
+                        queueCount = queueItems.size,
+                        onShowQueue = { showQueueScreen = true },
+                        onBack = {
+                            showQueueScreen = false
+                            showNowPlaying = false
+                        },
+                        onSeekPreview = {
+                            playbackPositionMs = it
+                            isScrubbing = true
+                        },
+                        onSeekFinished = {
+                            controller?.seekTo(playbackPositionMs)
+                            isScrubbing = false
+                        },
+                        onPrevious = { controller?.seekToPreviousMediaItem() },
+                        onPlayPause = {
+                            controller?.let { player ->
+                                if (player.isPlaying) player.pause() else player.play()
                             }
-                        }
-                    },
-                    modifier = Modifier.padding(padding)
-                )
+                        },
+                        onNext = { controller?.seekToNextMediaItem() },
+                        onShuffle = {
+                            controller?.let { player -> player.shuffleModeEnabled = !player.shuffleModeEnabled }
+                        },
+                        onRepeat = {
+                            controller?.let { player ->
+                                player.repeatMode = when (player.repeatMode) {
+                                    Player.REPEAT_MODE_OFF -> Player.REPEAT_MODE_ALL
+                                    Player.REPEAT_MODE_ALL -> Player.REPEAT_MODE_ONE
+                                    else -> Player.REPEAT_MODE_OFF
+                                }
+                            }
+                        },
+                        modifier = Modifier.padding(padding)
+                    )
+                }
             } else {
                 Column(
                     Modifier
@@ -542,6 +580,8 @@ private fun NowPlayingScreen(
     durationMs: Long,
     shuffleEnabled: Boolean,
     repeatMode: Int,
+    queueCount: Int,
+    onShowQueue: () -> Unit,
     onBack: () -> Unit,
     onSeekPreview: (Long) -> Unit,
     onSeekFinished: () -> Unit,
@@ -566,6 +606,10 @@ private fun NowPlayingScreen(
             Column {
                 Text("NOW PLAYING", color = Accent, style = MaterialTheme.typography.labelMedium)
                 Text("On-device music", color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
+            }
+            Spacer(Modifier.weight(1f))
+            IconButton(onClick = onShowQueue) {
+                Icon(Icons.Default.QueueMusic, "Open queue (" + queueCount + " tracks)")
             }
         }
 
@@ -655,6 +699,76 @@ private fun NowPlayingScreen(
             }
         }
         Spacer(Modifier.height(28.dp))
+    }
+}
+
+@Composable
+private fun QueueScreen(
+    queueItems: List<MediaItem>,
+    currentQueueIndex: Int,
+    onBack: () -> Unit,
+    onSelect: (Int) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier
+            .fillMaxSize()
+            .padding(horizontal = 20.dp, vertical = 16.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = onBack) {
+                Icon(Icons.Default.ArrowBack, "Back to player")
+            }
+            Column(Modifier.weight(1f)) {
+                Text("PLAY QUEUE", color = Accent, style = MaterialTheme.typography.labelMedium)
+                Text(queueItems.size.toString() + " tracks", color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
+            }
+        }
+        Spacer(Modifier.height(12.dp))
+        if (queueItems.isEmpty()) {
+            EmptyState("Queue is empty", "Play a track from your device library to build the queue.")
+        } else {
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                itemsIndexed(queueItems, key = { index, _ -> index }) { index, item ->
+                    val title = item.mediaMetadata.title?.toString()?.takeIf { it.isNotBlank() } ?: "Unknown title"
+                    val artist = item.mediaMetadata.artist?.toString()?.takeIf { it.isNotBlank() } ?: "Unknown artist"
+                    Surface(
+                        color = if (index == currentQueueIndex) Panel else Ink,
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .clickable { onSelect(index) }
+                                .padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(
+                                Modifier
+                                    .size(42.dp)
+                                    .background(Color(0xFF30343B), RoundedCornerShape(10.dp)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    if (index == currentQueueIndex) Icons.Default.Equalizer else Icons.Default.MusicNote,
+                                    null,
+                                    tint = if (index == currentQueueIndex) Accent else Color.LightGray
+                                )
+                            }
+                            Spacer(Modifier.width(12.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text(title, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(artist, color = Color.LightGray, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                            if (index == currentQueueIndex) {
+                                Text("PLAYING", color = Accent, style = MaterialTheme.typography.labelSmall)
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
