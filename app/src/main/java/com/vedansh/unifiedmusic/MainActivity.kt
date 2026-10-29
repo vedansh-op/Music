@@ -1,8 +1,13 @@
 package com.vedansh.unifiedmusic
 
+import android.Manifest
+import android.content.ComponentName
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -18,9 +23,17 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.ContextCompat
+import androidx.media3.common.MediaItem
+import androidx.media3.common.MediaMetadata
+import androidx.media3.session.MediaController
+import androidx.media3.session.SessionToken
+import com.google.common.util.concurrent.ListenableFuture
 import com.vedansh.unifiedmusic.catalog.DemoCatalog
+import com.vedansh.unifiedmusic.catalog.LocalMusicRepository
 import com.vedansh.unifiedmusic.catalog.Track
-import com.vedansh.unifiedmusic.catalog.TrackSource
+import com.vedansh.unifiedmusic.playback.MusicPlaybackService
 
 private val Ink = Color(0xFF101114)
 private val Panel = Color(0xFF1B1D22)
@@ -35,11 +48,81 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 private fun UnifiedMusicApp() {
-    var query by remember { mutableStateOf("") }
-    var selectedTab by remember { mutableStateOf("Search") }
-    var selectedTrack by remember { mutableStateOf<Track?>(null) }
+    val context = LocalContext.current
+    val repository = remember { LocalMusicRepository(context.applicationContext) }
     val catalog = remember { DemoCatalog() }
-    val results = remember(query) { catalog.search(query) }
+    var query by remember { mutableStateOf("") }
+    var selectedTab by remember { mutableStateOf("Home") }
+    var localTracks by remember { mutableStateOf<List<Track>>(emptyList()) }
+    var controller by remember { mutableStateOf<MediaController?>(null) }
+    var controllerFuture by remember { mutableStateOf<ListenableFuture<MediaController>?>(null) }
+    var permissionDenied by remember { mutableStateOf(false) }
+
+    fun refreshLocalTracks() {
+        localTracks = repository.getTracks()
+    }
+
+    val permission = if (Build.VERSION.SDK_INT >= 33) {
+        Manifest.permission.READ_MEDIA_AUDIO
+    } else {
+        Manifest.permission.READ_EXTERNAL_STORAGE
+    }
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        permissionDenied = !granted
+        if (granted) refreshLocalTracks()
+    }
+
+    LaunchedEffect(Unit) {
+        if (repository.hasReadPermission()) refreshLocalTracks()
+    }
+
+    DisposableEffect(context) {
+        val token = SessionToken(
+            context,
+            ComponentName(context, MusicPlaybackService::class.java)
+        )
+        val future = MediaController.Builder(context, token).buildAsync()
+        controllerFuture = future
+        future.addListener(
+            {
+                runCatching { future.get() }.onSuccess { controller = it }
+            },
+            ContextCompat.getMainExecutor(context)
+        )
+        onDispose {
+            controller = null
+            MediaController.releaseFuture(future)
+            controllerFuture = null
+        }
+    }
+
+    val results = remember(query, localTracks) {
+        if (query.isBlank()) emptyList()
+        else localTracks.filter {
+            it.title.contains(query, ignoreCase = true) ||
+                it.artist.contains(query, ignoreCase = true) ||
+                (it.album?.contains(query, ignoreCase = true) == true)
+        } + catalog.search(query)
+    }
+
+    fun playLocalTrack(track: Track) {
+        val activeController = controller ?: return
+        val item = MediaItem.Builder()
+            .setUri(track.providerId)
+            .setMediaMetadata(
+                MediaMetadata.Builder()
+                    .setTitle(track.title)
+                    .setArtist(track.artist)
+                    .setAlbumTitle(track.album)
+                    .build()
+            )
+            .build()
+        activeController.setMediaItem(item)
+        activeController.prepare()
+        activeController.play()
+    }
 
     MaterialTheme(
         colorScheme = darkColorScheme(
@@ -76,78 +159,110 @@ private fun UnifiedMusicApp() {
                 Spacer(Modifier.height(24.dp))
                 Text("YOUR MUSIC, ONE PLACE", color = Accent, style = MaterialTheme.typography.labelMedium)
                 Text("Unified", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Black)
-                Text("Search across your connected music sources.", color = Color.LightGray)
-                Spacer(Modifier.height(22.dp))
-
-                OutlinedTextField(
-                    value = query,
-                    onValueChange = { query = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    placeholder = { Text("Songs, artists, albums…") },
-                    leadingIcon = { Icon(Icons.Default.Search, null) },
-                    trailingIcon = {
-                        if (query.isNotEmpty()) IconButton(onClick = { query = "" }) {
-                            Icon(Icons.Default.Close, "Clear")
-                        }
+                Text(
+                    when (selectedTab) {
+                        "Library" -> "Music stored on this device."
+                        "Search" -> "Search your device library and demo catalogue."
+                        else -> "Your personal music space."
                     },
-                    singleLine = true,
-                    shape = RoundedCornerShape(18.dp),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = Accent,
-                        unfocusedBorderColor = Color.DarkGray,
-                        cursorColor = Accent
-                    )
+                    color = Color.LightGray
                 )
                 Spacer(Modifier.height(18.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    SourceChip("All sources", true)
-                    SourceChip("YouTube", false)
-                    SourceChip("Spotify", false)
-                    SourceChip("On device", false)
-                }
-                Spacer(Modifier.height(20.dp))
-                Text(if (query.isBlank()) "Try a search" else "RESULTS", color = Color.LightGray,
-                    style = MaterialTheme.typography.labelLarge)
-                Spacer(Modifier.height(8.dp))
 
-                if (query.isBlank()) {
-                    EmptyState()
-                } else {
-                    LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        items(results) { track ->
-                            TrackRow(track = track, onClick = { selectedTrack = track })
-                        }
-                    }
-                }
-
-                selectedTrack?.let { track ->
-                    Spacer(Modifier.height(12.dp))
+                if (!repository.hasReadPermission()) {
                     Surface(color = Panel, shape = RoundedCornerShape(16.dp)) {
-                        Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Column(Modifier.weight(1f)) {
-                                Text("SELECTED TRACK", color = Accent, style = MaterialTheme.typography.labelSmall)
-                                Text(track.title, fontWeight = FontWeight.Bold)
-                                Text("${track.artist} · ${track.source.label}", color = Color.LightGray)
+                        Column(Modifier.fillMaxWidth().padding(16.dp)) {
+                            Text("Enable your music library", fontWeight = FontWeight.Bold)
+                            Spacer(Modifier.height(4.dp))
+                            Text(
+                                "Allow audio access to find music stored on this device.",
+                                color = Color.LightGray
+                            )
+                            Spacer(Modifier.height(12.dp))
+                            Button(
+                                onClick = { permissionLauncher.launch(permission) },
+                                colors = ButtonDefaults.buttonColors(containerColor = Accent, contentColor = Ink)
+                            ) { Text("Allow access") }
+                            if (permissionDenied) {
+                                Text(
+                                    "Permission wasn't granted. You can enable it in Android app settings.",
+                                    color = Color(0xFFFFB4AB),
+                                    style = MaterialTheme.typography.bodySmall
+                                )
                             }
-                            Icon(Icons.Default.PlayArrow, "Playback integration milestone", tint = Accent)
+                        }
+                    }
+                    Spacer(Modifier.height(16.dp))
+                }
+
+                if (selectedTab == "Search") {
+                    OutlinedTextField(
+                        value = query,
+                        onValueChange = { query = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        placeholder = { Text("Songs, artists, albums…") },
+                        leadingIcon = { Icon(Icons.Default.Search, null) },
+                        trailingIcon = {
+                            if (query.isNotEmpty()) IconButton(onClick = { query = "" }) {
+                                Icon(Icons.Default.Close, "Clear")
+                            }
+                        },
+                        singleLine = true,
+                        shape = RoundedCornerShape(18.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = Accent,
+                            unfocusedBorderColor = Color.DarkGray,
+                            cursorColor = Accent
+                        )
+                    )
+                    Spacer(Modifier.height(16.dp))
+                    Text("SEARCH RESULTS", color = Color.LightGray, style = MaterialTheme.typography.labelLarge)
+                    Spacer(Modifier.height(8.dp))
+                    if (query.isBlank()) {
+                        EmptyState("Search your music", "Find local tracks by title, artist or album.")
+                    } else if (results.isEmpty()) {
+                        EmptyState("No matches", "Try another song or artist.")
+                    } else {
+                        LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            items(results, key = { it.id }) { track ->
+                                TrackRow(track = track, onClick = {
+                                    if (track.source == com.vedansh.unifiedmusic.catalog.TrackSource.LOCAL) {
+                                        playLocalTrack(track)
+                                    }
+                                })
+                            }
+                        }
+                    }
+                } else if (selectedTab == "Library") {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("ON THIS DEVICE", color = Color.LightGray, style = MaterialTheme.typography.labelLarge)
+                        Spacer(Modifier.weight(1f))
+                        TextButton(onClick = { refreshLocalTracks() }) { Text("Refresh", color = Accent) }
+                    }
+                    if (localTracks.isEmpty()) {
+                        EmptyState("Your library is empty", "Add audio files to your device, then refresh.")
+                    } else {
+                        LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            items(localTracks, key = { it.id }) { track ->
+                                TrackRow(track = track, onClick = { playLocalTrack(track) })
+                            }
+                        }
+                    }
+                } else {
+                    Text("ON THIS DEVICE", color = Color.LightGray, style = MaterialTheme.typography.labelLarge)
+                    Spacer(Modifier.height(8.dp))
+                    if (localTracks.isEmpty()) {
+                        EmptyState("Start with your own music", "Allow audio access to scan songs stored on this device.")
+                    } else {
+                        LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            items(localTracks.take(8), key = { it.id }) { track ->
+                                TrackRow(track = track, onClick = { playLocalTrack(track) })
+                            }
                         }
                     }
                 }
-                Spacer(Modifier.height(16.dp))
             }
         }
-    }
-}
-
-@Composable
-private fun SourceChip(label: String, selected: Boolean) {
-    Surface(
-        color = if (selected) Accent else Panel,
-        shape = RoundedCornerShape(50)
-    ) {
-        Text(label, color = if (selected) Ink else Color.LightGray,
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-            style = MaterialTheme.typography.labelMedium)
     }
 }
 
@@ -169,20 +284,24 @@ private fun TrackRow(track: Track, onClick: () -> Unit) {
                 Text(track.title, fontWeight = FontWeight.SemiBold)
                 Text(track.artist, color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
             }
-            Text(track.source.label, color = Accent, style = MaterialTheme.typography.labelSmall)
+            if (track.source == com.vedansh.unifiedmusic.catalog.TrackSource.LOCAL) {
+                Icon(Icons.Default.PlayArrow, "Play", tint = Accent)
+            } else {
+                Text("DEMO", color = Color.LightGray, style = MaterialTheme.typography.labelSmall)
+            }
         }
     }
 }
 
 @Composable
-private fun EmptyState() {
+private fun EmptyState(title: String, subtitle: String) {
     Column(
         Modifier.fillMaxWidth().padding(top = 42.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Icon(Icons.Default.LibraryMusic, null, tint = Accent, modifier = Modifier.size(42.dp))
         Spacer(Modifier.height(12.dp))
-        Text("A bigger music universe.", fontWeight = FontWeight.Bold)
-        Text("Search to see results from connected sources.", color = Color.LightGray)
+        Text(title, fontWeight = FontWeight.Bold)
+        Text(subtitle, color = Color.LightGray)
     }
 }
