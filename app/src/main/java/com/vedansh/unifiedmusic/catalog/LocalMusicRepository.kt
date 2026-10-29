@@ -37,6 +37,7 @@ class LocalMusicRepository(private val context: Context) {
             MediaStore.Audio.Media.TITLE,
             MediaStore.Audio.Media.ARTIST,
             MediaStore.Audio.Media.ALBUM,
+            MediaStore.Audio.Media.ALBUM_ID,
             MediaStore.Audio.Media.DURATION
         )
         val selection = MediaStore.Audio.Media.IS_MUSIC + " != 0"
@@ -54,6 +55,7 @@ class LocalMusicRepository(private val context: Context) {
             val titleColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
             val artistColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST)
             val albumColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM)
+            val albumIdColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM_ID)
             val durationColumn = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DURATION)
 
             while (cursor.moveToNext()) {
@@ -62,6 +64,8 @@ class LocalMusicRepository(private val context: Context) {
                 val title = cursor.getString(titleColumn)?.takeIf { it.isNotBlank() } ?: "Unknown title"
                 val artist = cursor.getString(artistColumn)?.takeIf { it.isNotBlank() } ?: "Unknown artist"
                 val album = cursor.getString(albumColumn)?.takeIf { it.isNotBlank() }
+                val albumId = cursor.getLong(albumIdColumn).takeIf { it > 0L }
+                val artworkUri = albumId?.let { "content://media/external/audio/albumart/" + it }
                 val duration = cursor.getLong(durationColumn).takeIf { it > 0L }
 
                 tracks += Track(
@@ -70,6 +74,7 @@ class LocalMusicRepository(private val context: Context) {
                     title = title,
                     artist = artist,
                     album = album,
+                    artworkUrl = artworkUri,
                     durationMs = duration,
                     source = TrackSource.LOCAL,
                     availability = TrackAvailability.AVAILABLE

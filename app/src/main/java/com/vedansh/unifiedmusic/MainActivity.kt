@@ -2,6 +2,7 @@ package com.vedansh.unifiedmusic
 
 import android.Manifest
 import android.content.ComponentName
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -25,6 +26,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.rememberVectorPainter
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -42,6 +45,7 @@ import com.vedansh.unifiedmusic.catalog.LocalMusicRepository
 import com.vedansh.unifiedmusic.catalog.Track
 import com.vedansh.unifiedmusic.catalog.TrackSource
 import com.vedansh.unifiedmusic.playback.MusicPlaybackService
+import coil.compose.AsyncImage
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -78,6 +82,7 @@ private fun UnifiedMusicApp() {
     var libraryError by remember { mutableStateOf<String?>(null) }
     var nowPlayingTitle by remember { mutableStateOf<String?>(null) }
     var nowPlayingArtist by remember { mutableStateOf<String?>(null) }
+    var nowPlayingArtworkUri by remember { mutableStateOf<String?>(null) }
     var isPlaying by remember { mutableStateOf(false) }
     var playbackPositionMs by remember { mutableLongStateOf(0L) }
     var durationMs by remember { mutableLongStateOf(0L) }
@@ -152,6 +157,7 @@ private fun UnifiedMusicApp() {
                 val metadata = activeController.mediaMetadata
                 nowPlayingTitle = metadata.title?.toString()?.takeIf { it.isNotBlank() }
                 nowPlayingArtist = metadata.artist?.toString()?.takeIf { it.isNotBlank() }
+                nowPlayingArtworkUri = metadata.artworkUri?.toString()
                 isPlaying = activeController.isPlaying
                 playbackPositionMs = activeController.currentPosition.coerceAtLeast(0L)
                 val currentDuration = activeController.duration
@@ -240,6 +246,7 @@ private fun UnifiedMusicApp() {
                         .setTitle(item.title)
                         .setArtist(item.artist)
                         .setAlbumTitle(item.album)
+                        .setArtworkUri(item.artworkUrl?.let(Uri::parse))
                         .build()
                 )
                 .build()
@@ -281,7 +288,18 @@ private fun UnifiedMusicApp() {
                                         .background(Color(0xFF30343B), RoundedCornerShape(10.dp)),
                                     contentAlignment = Alignment.Center
                                 ) {
-                                    Icon(Icons.Default.MusicNote, null, tint = Accent)
+                                    if (!nowPlayingArtworkUri.isNullOrBlank()) {
+                                        AsyncImage(
+                                            model = nowPlayingArtworkUri,
+                                            contentDescription = "Current album artwork",
+                                            modifier = Modifier.fillMaxSize(),
+                                            contentScale = ContentScale.Crop,
+                                            error = rememberVectorPainter(Icons.Default.MusicNote),
+                                            fallback = rememberVectorPainter(Icons.Default.MusicNote)
+                                        )
+                                    } else {
+                                        Icon(Icons.Default.MusicNote, null, tint = Accent)
+                                    }
                                 }
                                 Spacer(Modifier.width(10.dp))
                                 Column(Modifier.weight(1f)) {
@@ -358,6 +376,7 @@ private fun UnifiedMusicApp() {
                     NowPlayingScreen(
                         title = nowPlayingTitle ?: "Nothing playing",
                         artist = nowPlayingArtist ?: "Choose a track from your library",
+                        artworkUri = nowPlayingArtworkUri,
                         isPlaying = isPlaying,
                         positionMs = playbackPositionMs,
                         durationMs = durationMs,
@@ -575,6 +594,7 @@ private fun UnifiedMusicApp() {
 private fun NowPlayingScreen(
     title: String,
     artist: String,
+    artworkUri: String?,
     isPlaying: Boolean,
     positionMs: Long,
     durationMs: Long,
@@ -621,12 +641,23 @@ private fun NowPlayingScreen(
                 .background(Color(0xFF252931), RoundedCornerShape(24.dp)),
             contentAlignment = Alignment.Center
         ) {
-            Icon(
-                Icons.Default.MusicNote,
-                contentDescription = "Album artwork placeholder",
-                tint = Accent,
-                modifier = Modifier.size(100.dp)
-            )
+            if (!artworkUri.isNullOrBlank()) {
+                AsyncImage(
+                    model = artworkUri,
+                    contentDescription = "Album artwork",
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop,
+                    error = rememberVectorPainter(Icons.Default.MusicNote),
+                    fallback = rememberVectorPainter(Icons.Default.MusicNote)
+                )
+            } else {
+                Icon(
+                    Icons.Default.MusicNote,
+                    contentDescription = "Album artwork placeholder",
+                    tint = Accent,
+                    modifier = Modifier.size(100.dp)
+                )
+            }
         }
 
         Spacer(Modifier.height(24.dp))
@@ -750,11 +781,23 @@ private fun QueueScreen(
                                     .background(Color(0xFF30343B), RoundedCornerShape(10.dp)),
                                 contentAlignment = Alignment.Center
                             ) {
-                                Icon(
-                                    if (index == currentQueueIndex) Icons.Default.Equalizer else Icons.Default.MusicNote,
-                                    null,
-                                    tint = if (index == currentQueueIndex) Accent else Color.LightGray
-                                )
+                                val art = item.mediaMetadata.artworkUri
+                                if (art != null) {
+                                    AsyncImage(
+                                        model = art,
+                                        contentDescription = title + " artwork",
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentScale = ContentScale.Crop,
+                                        error = rememberVectorPainter(Icons.Default.MusicNote),
+                                        fallback = rememberVectorPainter(Icons.Default.MusicNote)
+                                    )
+                                } else {
+                                    Icon(
+                                        if (index == currentQueueIndex) Icons.Default.Equalizer else Icons.Default.MusicNote,
+                                        null,
+                                        tint = if (index == currentQueueIndex) Accent else Color.LightGray
+                                    )
+                                }
                             }
                             Spacer(Modifier.width(12.dp))
                             Column(Modifier.weight(1f)) {
@@ -788,7 +831,18 @@ private fun TrackRow(
                 Modifier.size(48.dp).background(Color(0xFF30343B), RoundedCornerShape(12.dp)),
                 contentAlignment = Alignment.Center
             ) {
-                Icon(Icons.Default.MusicNote, null, tint = Accent)
+                if (!track.artworkUrl.isNullOrBlank()) {
+                    AsyncImage(
+                        model = track.artworkUrl,
+                        contentDescription = track.title + " artwork",
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.Crop,
+                        error = rememberVectorPainter(Icons.Default.MusicNote),
+                        fallback = rememberVectorPainter(Icons.Default.MusicNote)
+                    )
+                } else {
+                    Icon(Icons.Default.MusicNote, null, tint = Accent)
+                }
             }
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
