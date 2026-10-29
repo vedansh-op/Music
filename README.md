@@ -9,6 +9,7 @@ A native Android music-player foundation built with Kotlin, Jetpack Compose, and
 - Plays local tracks through an ExoPlayer hosted in a MediaSessionService.
 - Builds a queue from the local library and provides previous/next playback controls.
 - Includes a mini-player and a dedicated Now Playing screen with seeking, shuffle, and repeat modes.
+- Saves liked local tracks with Preferences DataStore and filters the Library to liked songs.
 - Searches local track title, artist, and album metadata.
 - Builds a debug APK through GitHub Actions and runs JVM unit tests before packaging.
 

@@ -36,6 +36,7 @@ import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import com.vedansh.unifiedmusic.catalog.DemoCatalog
+import com.vedansh.unifiedmusic.catalog.FavoritesRepository
 import com.vedansh.unifiedmusic.catalog.LocalMusicRepository
 import com.vedansh.unifiedmusic.catalog.Track
 import com.vedansh.unifiedmusic.catalog.TrackSource
@@ -59,10 +60,13 @@ private fun UnifiedMusicApp() {
     val context = LocalContext.current
     val repository = remember { LocalMusicRepository(context.applicationContext) }
     val catalog = remember { DemoCatalog() }
+    val favoritesRepository = remember { FavoritesRepository(context.applicationContext) }
+    val favoriteIds by favoritesRepository.favoriteTrackIds.collectAsState(initial = emptySet())
     val scope = rememberCoroutineScope()
 
     var query by remember { mutableStateOf("") }
     var selectedTab by remember { mutableStateOf("Home") }
+    var libraryFilter by remember { mutableStateOf("All") }
     var localTracks by remember { mutableStateOf<List<Track>>(emptyList()) }
     var controller by remember { mutableStateOf<MediaController?>(null) }
     var permissionDenied by remember { mutableStateOf(false) }
@@ -90,6 +94,13 @@ private fun UnifiedMusicApp() {
             } finally {
                 isLoadingLibrary = false
             }
+        }
+    }
+
+    fun toggleFavorite(track: Track) {
+        if (track.source != TrackSource.LOCAL) return
+        scope.launch {
+            favoritesRepository.setFavorite(track.id, track.id !in favoriteIds)
         }
     }
 
@@ -195,6 +206,9 @@ private fun UnifiedMusicApp() {
                 it.artist.contains(query, ignoreCase = true) ||
                 (it.album?.contains(query, ignoreCase = true) == true)
         } + catalog.search(query)
+    }
+    val visibleLibraryTracks = remember(localTracks, favoriteIds, libraryFilter) {
+        if (libraryFilter == "Liked") localTracks.filter { it.id in favoriteIds } else localTracks
     }
 
     fun playLocalTrack(track: Track) {
@@ -433,7 +447,9 @@ private fun UnifiedMusicApp() {
                                     items(results, key = { it.id }) { track ->
                                         TrackRow(
                                             track = track,
-                                            onClick = { if (track.source == TrackSource.LOCAL) playLocalTrack(track) }
+                                            onClick = { if (track.source == TrackSource.LOCAL) playLocalTrack(track) },
+                                            isFavorite = track.id in favoriteIds,
+                                            onFavoriteClick = if (track.source == TrackSource.LOCAL) ({ toggleFavorite(track) }) else null
                                         )
                                     }
                                 }
@@ -454,14 +470,37 @@ private fun UnifiedMusicApp() {
                                 }
                                 TextButton(onClick = { refreshLocalTracks() }) { Text("Refresh", color = Accent) }
                             }
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                FilterChip(
+                                    selected = libraryFilter == "All",
+                                    onClick = { libraryFilter = "All" },
+                                    label = { Text("All songs") }
+                                )
+                                FilterChip(
+                                    selected = libraryFilter == "Liked",
+                                    onClick = { libraryFilter = "Liked" },
+                                    leadingIcon = { Icon(Icons.Default.Favorite, null) },
+                                    label = { Text("Liked") }
+                                )
+                            }
+                            Spacer(Modifier.height(8.dp))
                             if (localTracks.isEmpty() && isLoadingLibrary) {
                                 LoadingState("Scanning your music library…")
-                            } else if (localTracks.isEmpty()) {
-                                EmptyState("Your library is empty", "Add audio files to your device, then refresh.")
+                            } else if (visibleLibraryTracks.isEmpty()) {
+                                if (libraryFilter == "Liked") {
+                                    EmptyState("No liked songs", "Tap the heart on a track to keep it here.")
+                                } else {
+                                    EmptyState("Your library is empty", "Add audio files to your device, then refresh.")
+                                }
                             } else {
                                 LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    items(localTracks, key = { it.id }) { track ->
-                                        TrackRow(track = track, onClick = { playLocalTrack(track) })
+                                    items(visibleLibraryTracks, key = { it.id }) { track ->
+                                        TrackRow(
+                                            track = track,
+                                            onClick = { playLocalTrack(track) },
+                                            isFavorite = track.id in favoriteIds,
+                                            onFavoriteClick = { toggleFavorite(track) }
+                                        )
                                     }
                                 }
                             }
@@ -477,7 +516,12 @@ private fun UnifiedMusicApp() {
                             } else {
                                 LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                     items(localTracks.take(8), key = { it.id }) { track ->
-                                        TrackRow(track = track, onClick = { playLocalTrack(track) })
+                                        TrackRow(
+                                            track = track,
+                                            onClick = { playLocalTrack(track) },
+                                            isFavorite = track.id in favoriteIds,
+                                            onFavoriteClick = { toggleFavorite(track) }
+                                        )
                                     }
                                 }
                             }
@@ -615,7 +659,12 @@ private fun NowPlayingScreen(
 }
 
 @Composable
-private fun TrackRow(track: Track, onClick: () -> Unit) {
+private fun TrackRow(
+    track: Track,
+    onClick: () -> Unit,
+    isFavorite: Boolean = false,
+    onFavoriteClick: (() -> Unit)? = null
+) {
     Surface(color = Panel, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
         Row(
             Modifier.clickable(onClick = onClick).padding(12.dp),
@@ -633,6 +682,15 @@ private fun TrackRow(track: Track, onClick: () -> Unit) {
                 Text(track.artist, color = Color.LightGray, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             if (track.source == TrackSource.LOCAL) {
+                if (onFavoriteClick != null) {
+                    IconButton(onClick = onFavoriteClick) {
+                        Icon(
+                            if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                            if (isFavorite) "Remove from liked songs" else "Add to liked songs",
+                            tint = if (isFavorite) Accent else Color.LightGray
+                        )
+                    }
+                }
                 Icon(Icons.Default.PlayArrow, "Play", tint = Accent)
             } else {
                 Text("DEMO", color = Color.LightGray, style = MaterialTheme.typography.labelSmall)
