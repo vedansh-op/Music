@@ -18,7 +18,8 @@ A native Android music-player foundation built with Kotlin, Jetpack Compose, and
 ## Current limitations
 
 - Demo catalogue rows are UI-only and cannot be played.
-- YouTube Music and Spotify account linking, provider-backed streaming, lyrics, playlists, and downloads are not implemented yet.
+- YouTube Music and Spotify account linking, provider-backed streaming, lyrics, and online downloads are not implemented yet.
+- Playlists and favourites are currently local-only and reference tracks found by Android MediaStore.
 - A successful CI build verifies compilation and unit tests; it does not replace installing and testing the APK on a physical Android device.
 
 ## Build without Android Studio

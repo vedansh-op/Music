@@ -133,6 +133,7 @@ private fun UnifiedMusicApp() {
                 }
                 selectedPlaylistId = playlistId
                 libraryFilter = "Playlists"
+                selectedTab = "Library"
                 showCreatePlaylistDialog = false
                 newPlaylistName = ""
                 pendingTrackForPlaylist = null
@@ -628,7 +629,7 @@ private fun UnifiedMusicApp() {
                                     }
                                 } else {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Text("YOUR PLAYLISTS", color = Color.LightGray, style = MaterialTheme.typography.labelLarge)
+                                        Text(playlists.size.toString() + " playlists", color = Color.LightGray, style = MaterialTheme.typography.labelLarge)
                                         Spacer(Modifier.weight(1f))
                                         TextButton(onClick = {
                                             newPlaylistName = ""
@@ -720,7 +721,6 @@ private fun UnifiedMusicApp() {
                 }
             }
         }
-    }
     if (pendingTrackForPlaylist != null && !showCreatePlaylistDialog) {
         AlertDialog(
             onDismissRequest = { pendingTrackForPlaylist = null },
@@ -808,6 +808,7 @@ private fun UnifiedMusicApp() {
         )
     }
 
+    }
 }
 
 @Composable
