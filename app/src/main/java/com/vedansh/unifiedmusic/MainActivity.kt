@@ -32,6 +32,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.core.content.ContextCompat
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
@@ -98,6 +99,7 @@ private fun UnifiedMusicApp() {
     var nowPlayingTitle by remember { mutableStateOf<String?>(null) }
     var nowPlayingArtist by remember { mutableStateOf<String?>(null) }
     var nowPlayingSourceLabel by remember { mutableStateOf("On-device music") }
+    var nowPlayingSourceUrl by remember { mutableStateOf<String?>(null) }
     var nowPlayingArtworkUri by remember { mutableStateOf<String?>(null) }
     var isPlaying by remember { mutableStateOf(false) }
     var playbackPositionMs by remember { mutableLongStateOf(0L) }
@@ -200,6 +202,7 @@ private fun UnifiedMusicApp() {
                 nowPlayingTitle = metadata.title?.toString()?.takeIf { it.isNotBlank() }
                 nowPlayingArtist = metadata.artist?.toString()?.takeIf { it.isNotBlank() }
                 nowPlayingArtworkUri = metadata.artworkUri?.toString()
+                nowPlayingSourceUrl = metadata.mediaUri?.toString()
                 nowPlayingSourceLabel = if (activeController.currentMediaItem?.mediaId?.startsWith("audius:") == true) {
                     "Audius streaming"
                 } else {
@@ -332,6 +335,7 @@ private fun UnifiedMusicApp() {
                         .setArtist(item.artist)
                         .setAlbumTitle(item.album ?: if (item.source == TrackSource.AUDIUS) "Audius" else null)
                         .setArtworkUri(item.artworkUrl?.let(Uri::parse))
+                        .setMediaUri(item.sourceUrl?.let(Uri::parse))
                         .build()
                 )
                 .build()
@@ -463,6 +467,7 @@ private fun UnifiedMusicApp() {
                         artist = nowPlayingArtist ?: "Choose a track from your library",
                         artworkUri = nowPlayingArtworkUri,
                         sourceLabel = nowPlayingSourceLabel,
+                        sourceUrl = nowPlayingSourceUrl,
                         isPlaying = isPlaying,
                         positionMs = playbackPositionMs,
                         durationMs = durationMs,
@@ -889,6 +894,7 @@ private fun NowPlayingScreen(
     artist: String,
     artworkUri: String?,
     sourceLabel: String,
+    sourceUrl: String?,
     isPlaying: Boolean,
     positionMs: Long,
     durationMs: Long,
@@ -906,6 +912,7 @@ private fun NowPlayingScreen(
     onRepeat: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val uriHandler = LocalUriHandler.current
     Column(
         modifier
             .fillMaxSize()
@@ -958,6 +965,11 @@ private fun NowPlayingScreen(
         Text(title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
         Spacer(Modifier.height(4.dp))
         Text(artist, style = MaterialTheme.typography.bodyLarge, color = Color.LightGray, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        if (!sourceUrl.isNullOrBlank()) {
+            TextButton(onClick = { uriHandler.openUri(sourceUrl) }) {
+                Text("Open original track on Audius", color = Accent)
+            }
+        }
         Spacer(Modifier.height(12.dp))
 
         if (durationMs > 0L) {

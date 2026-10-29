@@ -8,6 +8,7 @@ data class Track(
     val album: String? = null,
     val artworkUrl: String? = null,
     val streamUrl: String? = null,
+    val sourceUrl: String? = null,
     val durationMs: Long? = null,
     val source: TrackSource,
     val availability: TrackAvailability = TrackAvailability.UNKNOWN

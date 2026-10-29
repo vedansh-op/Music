@@ -4,7 +4,6 @@ import com.vedansh.unifiedmusic.BuildConfig
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import org.json.JSONObject
 import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
@@ -33,33 +32,7 @@ class AudiusCatalog : MusicCatalog {
                 return@withContext buildList {
                     for (index in 0 until data.length()) {
                         val item = data.optJSONObject(index) ?: continue
-                        if (!isStreamable(item)) continue
-                        val providerId = item.optString("id").takeIf { it.isNotBlank() } ?: continue
-                        val title = item.optString("title").takeIf { it.isNotBlank() } ?: continue
-                        val user = item.optJSONObject("user")
-                        val artist = user?.optString("name")?.takeIf { it.isNotBlank() }
-                            ?: user?.optString("handle")?.takeIf { it.isNotBlank() }
-                            ?: "Audius artist"
-                        val artwork = item.optJSONObject("artwork")
-                        val artworkUrl = artwork?.optString("_480x480")?.takeIf { it.startsWith("https://") }
-                            ?: artwork?.optString("_1000x1000")?.takeIf { it.startsWith("https://") }
-                            ?: artwork?.optString("_150x150")?.takeIf { it.startsWith("https://") }
-                        val durationSeconds = item.optDouble("duration", 0.0)
-                        val encodedId = URLEncoder.encode(providerId, Charsets.UTF_8.name())
-                        val streamUrl = base + "/tracks/" + encodedId + "/stream?app_name=" + APP_NAME
-                        add(
-                            Track(
-                                id = "audius:$providerId",
-                                providerId = providerId,
-                                title = title,
-                                artist = artist,
-                                artworkUrl = artworkUrl,
-                                streamUrl = streamUrl,
-                                durationMs = (durationSeconds * 1_000.0).toLong().takeIf { it > 0L },
-                                source = TrackSource.AUDIUS,
-                                availability = TrackAvailability.AVAILABLE
-                            )
-                        )
+                        AudiusTrackMapper.fromJson(item, base, APP_NAME)?.let(::add)
                     }
                 }
             } catch (cancelled: CancellationException) {
@@ -69,21 +42,6 @@ class AudiusCatalog : MusicCatalog {
             }
         }
         throw IOException("Audius search is currently unavailable. Check your connection and try again.", lastFailure)
-    }
-
-    private fun isStreamable(track: JSONObject): Boolean {
-        val value = when {
-            track.has("isStreamable") -> track.opt("isStreamable")
-            track.has("is_streamable") -> track.opt("is_streamable")
-            else -> null
-        } ?: return true
-
-        return when (value) {
-            is Boolean -> value
-            is String -> !value.equals("false", ignoreCase = true) && value.isNotBlank()
-            JSONObject.NULL -> true
-            else -> true
-        }
     }
 
     private fun getJson(requestUrl: String): JSONObject {
