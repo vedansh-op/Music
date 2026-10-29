@@ -10,6 +10,7 @@ A native Android music-player foundation built with Kotlin, Jetpack Compose, and
 - Builds a queue from the local library, exposes a queue screen, and provides previous/next playback controls.
 - Includes a mini-player and a dedicated Now Playing screen with seeking, shuffle, and repeat modes.
 - Saves liked local tracks with Preferences DataStore and filters the Library to liked songs.
+- Creates, persists, and deletes local playlists; add/remove device tracks and play a playlist-specific queue.
 - Displays local album artwork when Android MediaStore provides it, including the mini-player, queue, and Now Playing screen.
 - Searches local track title, artist, and album metadata.
 - Builds a debug APK through GitHub Actions and runs JVM unit tests before packaging.

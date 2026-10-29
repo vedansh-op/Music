@@ -42,6 +42,8 @@ import androidx.media3.session.SessionToken
 import com.vedansh.unifiedmusic.catalog.DemoCatalog
 import com.vedansh.unifiedmusic.catalog.FavoritesRepository
 import com.vedansh.unifiedmusic.catalog.LocalMusicRepository
+import com.vedansh.unifiedmusic.catalog.LocalPlaylist
+import com.vedansh.unifiedmusic.catalog.LocalPlaylistsRepository
 import com.vedansh.unifiedmusic.catalog.Track
 import com.vedansh.unifiedmusic.catalog.TrackSource
 import com.vedansh.unifiedmusic.playback.MusicPlaybackService
@@ -67,11 +69,18 @@ private fun UnifiedMusicApp() {
     val catalog = remember { DemoCatalog() }
     val favoritesRepository = remember { FavoritesRepository(context.applicationContext) }
     val favoriteIds by favoritesRepository.favoriteTrackIds.collectAsState(initial = emptySet())
+    val playlistsRepository = remember { LocalPlaylistsRepository(context.applicationContext) }
+    val playlists by playlistsRepository.playlists.collectAsState(initial = emptyList())
     val scope = rememberCoroutineScope()
 
     var query by remember { mutableStateOf("") }
     var selectedTab by remember { mutableStateOf("Home") }
     var libraryFilter by remember { mutableStateOf("All") }
+    var selectedPlaylistId by remember { mutableStateOf<String?>(null) }
+    var pendingTrackForPlaylist by remember { mutableStateOf<Track?>(null) }
+    var playlistToDelete by remember { mutableStateOf<LocalPlaylist?>(null) }
+    var showCreatePlaylistDialog by remember { mutableStateOf(false) }
+    var newPlaylistName by remember { mutableStateOf("") }
     var localTracks by remember { mutableStateOf<List<Track>>(emptyList()) }
     var controller by remember { mutableStateOf<MediaController?>(null) }
     var queueItems by remember { mutableStateOf<List<MediaItem>>(emptyList()) }
@@ -111,6 +120,31 @@ private fun UnifiedMusicApp() {
         scope.launch {
             favoritesRepository.setFavorite(track.id, track.id !in favoriteIds)
         }
+    }
+
+    fun createPlaylist() {
+        val cleanName = newPlaylistName.trim()
+        if (cleanName.isBlank()) return
+        scope.launch {
+            val playlistId = playlistsRepository.createPlaylist(cleanName)
+            if (playlistId != null) {
+                pendingTrackForPlaylist?.let { track ->
+                    playlistsRepository.setTrackInPlaylist(playlistId, track.id, true)
+                }
+                selectedPlaylistId = playlistId
+                libraryFilter = "Playlists"
+                showCreatePlaylistDialog = false
+                newPlaylistName = ""
+                pendingTrackForPlaylist = null
+            }
+        }
+    }
+
+    fun addTrackToPlaylist(track: Track, playlistId: String) {
+        scope.launch {
+            playlistsRepository.setTrackInPlaylist(playlistId, track.id, true)
+        }
+        pendingTrackForPlaylist = null
     }
 
     val permission = if (Build.VERSION.SDK_INT >= 33) {
@@ -235,10 +269,15 @@ private fun UnifiedMusicApp() {
     val visibleLibraryTracks = remember(localTracks, favoriteIds, libraryFilter) {
         if (libraryFilter == "Liked") localTracks.filter { it.id in favoriteIds } else localTracks
     }
+    val selectedPlaylist = playlists.firstOrNull { it.id == selectedPlaylistId }
+    val selectedPlaylistTracks = remember(localTracks, selectedPlaylist) {
+        val ids = selectedPlaylist?.trackIds ?: emptySet()
+        localTracks.filter { it.id in ids }
+    }
 
-    fun playLocalTrack(track: Track) {
+    fun playLocalTrack(track: Track, queueSource: List<Track> = localTracks) {
         val activeController = controller ?: return
-        val queue = localTracks.map { item ->
+        val queue = queueSource.map { item ->
             MediaItem.Builder()
                 .setUri(item.providerId)
                 .setMediaMetadata(
@@ -251,7 +290,7 @@ private fun UnifiedMusicApp() {
                 )
                 .build()
         }
-        val startIndex = localTracks.indexOfFirst { it.id == track.id }
+        val startIndex = queueSource.indexOfFirst { it.id == track.id }
         if (queue.isEmpty() || startIndex < 0) return
         activeController.setMediaItems(queue, startIndex, C.TIME_UNSET)
         activeController.prepare()
@@ -506,7 +545,8 @@ private fun UnifiedMusicApp() {
                                             track = track,
                                             onClick = { if (track.source == TrackSource.LOCAL) playLocalTrack(track) },
                                             isFavorite = track.id in favoriteIds,
-                                            onFavoriteClick = if (track.source == TrackSource.LOCAL) ({ toggleFavorite(track) }) else null
+                                            onFavoriteClick = if (track.source == TrackSource.LOCAL) ({ toggleFavorite(track) }) else null,
+                                            onAddToPlaylist = if (track.source == TrackSource.LOCAL) ({ pendingTrackForPlaylist = track }) else null
                                         )
                                     }
                                 }
@@ -515,7 +555,11 @@ private fun UnifiedMusicApp() {
 
                         "Library" -> {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text("ON THIS DEVICE", color = Color.LightGray, style = MaterialTheme.typography.labelLarge)
+                                Text(
+                                    if (libraryFilter == "Playlists") "YOUR PLAYLISTS" else "ON THIS DEVICE",
+                                    color = Color.LightGray,
+                                    style = MaterialTheme.typography.labelLarge
+                                )
                                 Spacer(Modifier.weight(1f))
                                 if (isLoadingLibrary) {
                                     CircularProgressIndicator(
@@ -530,18 +574,105 @@ private fun UnifiedMusicApp() {
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 FilterChip(
                                     selected = libraryFilter == "All",
-                                    onClick = { libraryFilter = "All" },
+                                    onClick = { libraryFilter = "All"; selectedPlaylistId = null },
                                     label = { Text("All songs") }
                                 )
                                 FilterChip(
                                     selected = libraryFilter == "Liked",
-                                    onClick = { libraryFilter = "Liked" },
+                                    onClick = { libraryFilter = "Liked"; selectedPlaylistId = null },
                                     leadingIcon = { Icon(Icons.Default.Favorite, null) },
                                     label = { Text("Liked") }
                                 )
+                                FilterChip(
+                                    selected = libraryFilter == "Playlists",
+                                    onClick = { libraryFilter = "Playlists"; selectedPlaylistId = null },
+                                    leadingIcon = { Icon(Icons.Default.QueueMusic, null) },
+                                    label = { Text("Playlists") }
+                                )
                             }
                             Spacer(Modifier.height(8.dp))
-                            if (localTracks.isEmpty() && isLoadingLibrary) {
+
+                            if (libraryFilter == "Playlists") {
+                                if (selectedPlaylist != null) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        IconButton(onClick = { selectedPlaylistId = null }) {
+                                            Icon(Icons.Default.ArrowBack, "Back to playlists")
+                                        }
+                                        Column(Modifier.weight(1f)) {
+                                            Text(selectedPlaylist.name, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                            Text(selectedPlaylistTracks.size.toString() + " tracks", color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
+                                        }
+                                        IconButton(onClick = { playlistToDelete = selectedPlaylist }) {
+                                            Icon(Icons.Default.DeleteOutline, "Delete playlist", tint = Color(0xFFFFB4AB))
+                                        }
+                                    }
+                                    if (selectedPlaylistTracks.isEmpty()) {
+                                        EmptyState("Playlist is empty", "Use the playlist button on any local track to add songs.")
+                                    } else {
+                                        LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                            items(selectedPlaylistTracks, key = { it.id }) { track ->
+                                                TrackRow(
+                                                    track = track,
+                                                    onClick = { playLocalTrack(track, selectedPlaylistTracks) },
+                                                    isFavorite = track.id in favoriteIds,
+                                                    onFavoriteClick = { toggleFavorite(track) },
+                                                    onAddToPlaylist = { pendingTrackForPlaylist = track },
+                                                    onRemoveFromPlaylist = {
+                                                        scope.launch {
+                                                            playlistsRepository.setTrackInPlaylist(selectedPlaylist.id, track.id, false)
+                                                        }
+                                                    }
+                                                )
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text("YOUR PLAYLISTS", color = Color.LightGray, style = MaterialTheme.typography.labelLarge)
+                                        Spacer(Modifier.weight(1f))
+                                        TextButton(onClick = {
+                                            newPlaylistName = ""
+                                            pendingTrackForPlaylist = null
+                                            showCreatePlaylistDialog = true
+                                        }) {
+                                            Icon(Icons.Default.Add, null)
+                                            Spacer(Modifier.width(4.dp))
+                                            Text("New playlist", color = Accent)
+                                        }
+                                    }
+                                    if (playlists.isEmpty()) {
+                                        EmptyState("No playlists yet", "Create a playlist to organize the music on your device.")
+                                    } else {
+                                        LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                            items(playlists, key = { it.id }) { playlist ->
+                                                Surface(
+                                                    color = Panel,
+                                                    shape = RoundedCornerShape(16.dp),
+                                                    modifier = Modifier.fillMaxWidth()
+                                                ) {
+                                                    Row(
+                                                        Modifier
+                                                            .fillMaxWidth()
+                                                            .clickable { selectedPlaylistId = playlist.id }
+                                                            .padding(14.dp),
+                                                        verticalAlignment = Alignment.CenterVertically
+                                                    ) {
+                                                        Icon(Icons.Default.QueueMusic, null, tint = Accent, modifier = Modifier.size(36.dp))
+                                                        Spacer(Modifier.width(12.dp))
+                                                        Column(Modifier.weight(1f)) {
+                                                            Text(playlist.name, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                                            Text(playlist.trackIds.size.toString() + " tracks", color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
+                                                        }
+                                                        IconButton(onClick = { playlistToDelete = playlist }) {
+                                                            Icon(Icons.Default.DeleteOutline, "Delete " + playlist.name, tint = Color(0xFFFFB4AB))
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            } else if (localTracks.isEmpty() && isLoadingLibrary) {
                                 LoadingState("Scanning your music library…")
                             } else if (visibleLibraryTracks.isEmpty()) {
                                 if (libraryFilter == "Liked") {
@@ -556,7 +687,8 @@ private fun UnifiedMusicApp() {
                                             track = track,
                                             onClick = { playLocalTrack(track) },
                                             isFavorite = track.id in favoriteIds,
-                                            onFavoriteClick = { toggleFavorite(track) }
+                                            onFavoriteClick = { toggleFavorite(track) },
+                                            onAddToPlaylist = { pendingTrackForPlaylist = track }
                                         )
                                     }
                                 }
@@ -577,7 +709,8 @@ private fun UnifiedMusicApp() {
                                             track = track,
                                             onClick = { playLocalTrack(track) },
                                             isFavorite = track.id in favoriteIds,
-                                            onFavoriteClick = { toggleFavorite(track) }
+                                            onFavoriteClick = { toggleFavorite(track) },
+                                            onAddToPlaylist = { pendingTrackForPlaylist = track }
                                         )
                                     }
                                 }
@@ -588,6 +721,93 @@ private fun UnifiedMusicApp() {
             }
         }
     }
+    if (pendingTrackForPlaylist != null && !showCreatePlaylistDialog) {
+        AlertDialog(
+            onDismissRequest = { pendingTrackForPlaylist = null },
+            title = { Text("Add to playlist") },
+            text = {
+                Column {
+                    Text(pendingTrackForPlaylist?.title.orEmpty(), color = Color.LightGray)
+                    Spacer(Modifier.height(8.dp))
+                    if (playlists.isEmpty()) {
+                        Text("No playlists yet. Create one to save this song.")
+                    } else {
+                        playlists.forEach { playlist ->
+                            TextButton(
+                                onClick = {
+                                    pendingTrackForPlaylist?.let { track -> addTrackToPlaylist(track, playlist.id) }
+                                },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(playlist.name, modifier = Modifier.fillMaxWidth())
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    newPlaylistName = ""
+                    showCreatePlaylistDialog = true
+                }) { Text("New playlist") }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingTrackForPlaylist = null }) { Text("Cancel") }
+            }
+        )
+    }
+
+    if (showCreatePlaylistDialog) {
+        AlertDialog(
+            onDismissRequest = { showCreatePlaylistDialog = false },
+            title = { Text("Create playlist") },
+            text = {
+                OutlinedTextField(
+                    value = newPlaylistName,
+                    onValueChange = { newPlaylistName = it.take(60) },
+                    label = { Text("Playlist name") },
+                    placeholder = { Text("Late-night drive") },
+                    singleLine = true
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = newPlaylistName.isNotBlank(),
+                    onClick = { createPlaylist() }
+                ) { Text("Create") }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    showCreatePlaylistDialog = false
+                    pendingTrackForPlaylist = null
+                }) { Text("Cancel") }
+            }
+        )
+    }
+
+    if (playlistToDelete != null) {
+        val deleting = playlistToDelete
+        AlertDialog(
+            onDismissRequest = { playlistToDelete = null },
+            title = { Text("Delete playlist?") },
+            text = { Text("Delete \"" + (deleting?.name ?: "") + "\"? The songs themselves will stay on your device.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    deleting?.let { playlist ->
+                        scope.launch {
+                            playlistsRepository.deletePlaylist(playlist.id)
+                        }
+                        if (selectedPlaylistId == playlist.id) selectedPlaylistId = null
+                    }
+                    playlistToDelete = null
+                }) { Text("Delete", color = Color(0xFFFFB4AB)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { playlistToDelete = null }) { Text("Cancel") }
+            }
+        )
+    }
+
 }
 
 @Composable
@@ -820,7 +1040,9 @@ private fun TrackRow(
     track: Track,
     onClick: () -> Unit,
     isFavorite: Boolean = false,
-    onFavoriteClick: (() -> Unit)? = null
+    onFavoriteClick: (() -> Unit)? = null,
+    onAddToPlaylist: (() -> Unit)? = null,
+    onRemoveFromPlaylist: (() -> Unit)? = null
 ) {
     Surface(color = Panel, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth()) {
         Row(
@@ -850,6 +1072,16 @@ private fun TrackRow(
                 Text(track.artist, color = Color.LightGray, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             if (track.source == TrackSource.LOCAL) {
+                if (onAddToPlaylist != null) {
+                    IconButton(onClick = onAddToPlaylist) {
+                        Icon(Icons.Default.PlaylistAdd, "Add to playlist", tint = Color.LightGray)
+                    }
+                }
+                if (onRemoveFromPlaylist != null) {
+                    IconButton(onClick = onRemoveFromPlaylist) {
+                        Icon(Icons.Default.RemoveCircleOutline, "Remove from playlist", tint = Color.LightGray)
+                    }
+                }
                 if (onFavoriteClick != null) {
                     IconButton(onClick = onFavoriteClick) {
                         Icon(
