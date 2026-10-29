@@ -3,9 +3,11 @@ package com.vedansh.unifiedmusic.catalog
 import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.provider.MediaStore
 import androidx.core.content.ContextCompat
-import android.net.Uri
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /**
  * Reads music already stored on the device. This repository never uploads or copies audio.
@@ -22,8 +24,12 @@ class LocalMusicRepository(private val context: Context) {
         return ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
     }
 
-    fun getTracks(): List<Track> {
-        if (!hasReadPermission()) return emptyList()
+    /**
+     * MediaStore can contain thousands of rows, so execute the query off the main thread.
+     * A missing permission or a device with no audio files is represented by an empty list.
+     */
+    suspend fun getTracks(): List<Track> = withContext(Dispatchers.IO) {
+        if (!hasReadPermission()) return@withContext emptyList()
 
         val collection: Uri = MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
         val projection = arrayOf(
@@ -33,8 +39,8 @@ class LocalMusicRepository(private val context: Context) {
             MediaStore.Audio.Media.ALBUM,
             MediaStore.Audio.Media.DURATION
         )
-        val selection = "${MediaStore.Audio.Media.IS_MUSIC} != 0"
-        val sortOrder = "${MediaStore.Audio.Media.TITLE} COLLATE NOCASE ASC"
+        val selection = MediaStore.Audio.Media.IS_MUSIC + " != 0"
+        val sortOrder = MediaStore.Audio.Media.TITLE + " COLLATE NOCASE ASC"
         val tracks = mutableListOf<Track>()
 
         context.contentResolver.query(
@@ -59,7 +65,7 @@ class LocalMusicRepository(private val context: Context) {
                 val duration = cursor.getLong(durationColumn).takeIf { it > 0L }
 
                 tracks += Track(
-                    id = "local:$id",
+                    id = "local:" + id,
                     providerId = contentUri.toString(),
                     title = title,
                     artist = artist,
@@ -70,6 +76,6 @@ class LocalMusicRepository(private val context: Context) {
                 )
             }
         }
-        return tracks
+        tracks
     }
 }

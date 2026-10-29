@@ -25,11 +25,11 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Build APK
+      - name: Run unit tests and build APK
         run: |
           echo "ANDROID_HOME=$ANDROID_HOME"
           echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
-          gradle :app:assembleDebug
+          gradle :app:testDebugUnitTest :app:assembleDebug
 
       - name: Upload APK
         uses: actions/upload-artifact@v4

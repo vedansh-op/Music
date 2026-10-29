@@ -1,61 +1,36 @@
-# Unified Music — Android starter
+# Unified Music — Android music player
 
-A native Android-first foundation for a unified music app.
+A native Android music-player foundation built with Kotlin, Jetpack Compose, and AndroidX Media3.
 
-## Current status
+## Implemented in the current milestone
 
-This is **Milestone 0 / app-shell starter**, not a finished music player and not yet a verified APK.
+- Reads on-device audio through Android MediaStore after the user grants audio permission.
+- Performs the MediaStore query on an IO dispatcher rather than blocking the UI thread.
+- Plays local tracks through an ExoPlayer hosted in a MediaSessionService.
+- Builds a queue from the local library and provides previous/next playback controls.
+- Includes a mini-player and a dedicated Now Playing screen with seeking, shuffle, and repeat modes.
+- Searches local track title, artist, and album metadata.
+- Builds a debug APK through GitHub Actions and runs JVM unit tests before packaging.
 
-Included:
-- Kotlin + Jetpack Compose app shell
-- Dark interface with a lime accent
-- Search field and source filter visual chips
-- Shared `Track`, `TrackSource`, and `TrackAvailability` models
-- Demo catalog for exercising search UI
-- AndroidX Media3 `MediaSessionService` foundation
-- Room and DataStore dependencies reserved for persistence work
-- Android 10+ minimum SDK
+## Current limitations
 
-Not yet implemented:
-- Real YouTube or Spotify account connection
-- Provider-backed search
-- Actual local media scanning and playback controls
-- Queue persistence, favorites, playlists, lyrics
-- Verified build, device testing, and release signing
+- Demo catalogue rows are UI-only and cannot be played.
+- YouTube Music and Spotify account linking, provider-backed streaming, lyrics, playlists, and downloads are not implemented yet.
+- A successful CI build verifies compilation and unit tests; it does not replace installing and testing the APK on a physical Android device.
 
-## Open in Android Studio
+## Build without Android Studio
 
-1. Install Android Studio and a JDK 17.
-2. Open this folder (`UnifiedMusicAndroid`) in Android Studio.
-3. Allow Gradle sync and install Android SDK Platform 35 if prompted.
-4. Run the `app` configuration on an Android 10+ device or emulator.
+1. Open the repository's **Actions** tab.
+2. Select the latest successful **Build Android APK** workflow run.
+3. Download the **UnifiedMusic-debug-apk** artifact and extract **app-debug.apk**.
+4. Transfer the APK to an Android phone and install it. Android may ask you to allow installation from the browser or file manager used to open it.
 
-To create a debug APK after a successful sync:
-`./gradlew assembleDebug`
+The artifact is a debug APK, not a Play Store release. The workflow retains each artifact for 14 days.
 
-The APK should appear at:
-`app/build/outputs/apk/debug/app-debug.apk`
+## YouTube integration note
 
-## Architecture rule
+The app should use documented and authorized provider capabilities only. The official YouTube API policies prohibit audio separation and background playback of YouTube audiovisual content through API clients. A future provider integration needs a compliant playback strategy and must not collect a user's Google password.
 
-The UI must not call third-party music APIs directly. Add one adapter per provider behind the catalog/domain interfaces. A provider is enabled only after its current authorization, playback, attribution, and distribution rules have been verified.
+## Architecture direction
 
-## Next implementation slice
-
-1. Add a MediaStore local-audio repository and permission flow.
-2. Connect the UI to a `MediaController` for play/pause/seek/queue.
-3. Add Room entities and DataStore preferences.
-4. Add provider adapters only for approved capabilities.
-5. Add unit and device tests before calling the APK installable.
-
-
-## Build without Android Studio (GitHub Actions)
-
-1. Create a new **empty** GitHub repository.
-2. Upload the contents of this project ZIP to the repository (not the ZIP file itself).
-3. Open the repository's **Actions** tab.
-4. Select **Build Android APK** and choose **Run workflow**, or push to `main`.
-5. Open the completed workflow run and download the `UnifiedMusic-debug-apk` artifact.
-6. Extract the downloaded artifact to get `app-debug.apk`, then transfer it to your Android phone and install it.
-
-The workflow builds in GitHub's hosted Linux environment. The APK is a debug build, not a Play Store release.
+Keep provider adapters behind catalog/domain interfaces instead of calling APIs from composables. Treat local playback and any online provider as separate sources so unsupported demo items can never masquerade as playable tracks.
