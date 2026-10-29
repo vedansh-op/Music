@@ -1,8 +1,12 @@
 package com.vedansh.unifiedmusic.playback
 
+import androidx.media3.datasource.DefaultDataSource
+import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
+import com.vedansh.unifiedmusic.BuildConfig
 
 /**
  * Background playback host. The first UI milestone uses a demo catalog;
@@ -14,7 +18,13 @@ class MusicPlaybackService : MediaSessionService() {
 
     override fun onCreate() {
         super.onCreate()
-        val exoPlayer = ExoPlayer.Builder(this).build()
+        val httpDataSourceFactory = DefaultHttpDataSource.Factory()
+        if (BuildConfig.AUDIUS_API_KEY.isNotBlank()) {
+            httpDataSourceFactory.setDefaultRequestProperties(mapOf("x-api-key" to BuildConfig.AUDIUS_API_KEY))
+        }
+        val dataSourceFactory = DefaultDataSource.Factory(this, httpDataSourceFactory)
+        val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory)
+        val exoPlayer = ExoPlayer.Builder(this).setMediaSourceFactory(mediaSourceFactory).build()
         player = exoPlayer
         mediaSession = MediaSession.Builder(this, exoPlayer).build()
     }

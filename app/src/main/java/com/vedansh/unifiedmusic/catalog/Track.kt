@@ -7,13 +7,14 @@ data class Track(
     val artist: String,
     val album: String? = null,
     val artworkUrl: String? = null,
+    val streamUrl: String? = null,
     val durationMs: Long? = null,
     val source: TrackSource,
     val availability: TrackAvailability = TrackAvailability.UNKNOWN
 )
 
 enum class TrackSource(val label: String) {
-    LOCAL("On device"), YOUTUBE("YouTube"), SPOTIFY("Spotify"), DEMO("Demo")
+    LOCAL("On device"), AUDIUS("Audius"), YOUTUBE("YouTube"), SPOTIFY("Spotify"), DEMO("Demo")
 }
 
 enum class TrackAvailability {

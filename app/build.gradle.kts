@@ -4,6 +4,12 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+val audiusApiKey = providers.environmentVariable("AUDIUS_API_KEY")
+    .orElse(providers.gradleProperty("audiusApiKey"))
+    .orElse("")
+    .get()
+val escapedAudiusApiKey = audiusApiKey.replace("\\", "\\\\").replace("\"", "\\\"")
+
 android {
     namespace = "com.vedansh.unifiedmusic"
     compileSdk = 35
@@ -12,11 +18,15 @@ android {
         applicationId = "com.vedansh.unifiedmusic"
         minSdk = 29
         targetSdk = 35
-        versionCode = 2
-        versionName = "0.3.0"
+        versionCode = 3
+        versionName = "0.4.0"
+        buildConfigField("String", "AUDIUS_API_KEY", "\"" + escapedAudiusApiKey + "\"")
     }
 
-    buildFeatures { compose = true }
+    buildFeatures {
+        compose = true
+        buildConfig = true
+    }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
