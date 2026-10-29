@@ -25,8 +25,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.content.ContextCompat
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
+import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
 import com.google.common.util.concurrent.ListenableFuture
@@ -57,6 +59,9 @@ private fun UnifiedMusicApp() {
     var controller by remember { mutableStateOf<MediaController?>(null) }
     var controllerFuture by remember { mutableStateOf<ListenableFuture<MediaController>?>(null) }
     var permissionDenied by remember { mutableStateOf(false) }
+    var nowPlayingTitle by remember { mutableStateOf<String?>(null) }
+    var nowPlayingArtist by remember { mutableStateOf<String?>(null) }
+    var isPlaying by remember { mutableStateOf(false) }
 
     fun refreshLocalTracks() {
         localTracks = repository.getTracks()
@@ -98,6 +103,34 @@ private fun UnifiedMusicApp() {
         }
     }
 
+    DisposableEffect(controller) {
+        val activeController = controller
+        if (activeController == null) {
+            onDispose { }
+        } else {
+            fun syncPlaybackState() {
+                val metadata = activeController.mediaMetadata
+                nowPlayingTitle = metadata.title?.toString()
+                nowPlayingArtist = metadata.artist?.toString()
+                isPlaying = activeController.isPlaying
+            }
+            val listener = object : Player.Listener {
+                override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                    syncPlaybackState()
+                }
+                override fun onIsPlayingChanged(playing: Boolean) {
+                    isPlaying = playing
+                }
+                override fun onPlaybackStateChanged(playbackState: Int) {
+                    syncPlaybackState()
+                }
+            }
+            activeController.addListener(listener)
+            syncPlaybackState()
+            onDispose { activeController.removeListener(listener) }
+        }
+    }
+
     val results = remember(query, localTracks) {
         if (query.isBlank()) emptyList()
         else localTracks.filter {
@@ -109,17 +142,21 @@ private fun UnifiedMusicApp() {
 
     fun playLocalTrack(track: Track) {
         val activeController = controller ?: return
-        val item = MediaItem.Builder()
-            .setUri(track.providerId)
-            .setMediaMetadata(
-                MediaMetadata.Builder()
-                    .setTitle(track.title)
-                    .setArtist(track.artist)
-                    .setAlbumTitle(track.album)
-                    .build()
-            )
-            .build()
-        activeController.setMediaItem(item)
+        val queue = localTracks.map { item ->
+            MediaItem.Builder()
+                .setUri(item.providerId)
+                .setMediaMetadata(
+                    MediaMetadata.Builder()
+                        .setTitle(item.title)
+                        .setArtist(item.artist)
+                        .setAlbumTitle(item.album)
+                        .build()
+                )
+                .build()
+        }
+        val startIndex = localTracks.indexOfFirst { it.id == track.id }.coerceAtLeast(0)
+        if (queue.isEmpty()) return
+        activeController.setMediaItems(queue, startIndex, C.TIME_UNSET)
         activeController.prepare()
         activeController.play()
     }
@@ -133,22 +170,50 @@ private fun UnifiedMusicApp() {
         Scaffold(
             containerColor = Ink,
             bottomBar = {
-                NavigationBar(containerColor = Panel) {
-                    listOf("Home", "Search", "Library").forEach { tab ->
-                        NavigationBarItem(
-                            selected = selectedTab == tab,
-                            onClick = { selectedTab = tab },
-                            icon = {
-                                Icon(
-                                    when (tab) {
-                                        "Home" -> Icons.Default.Home
-                                        "Library" -> Icons.Default.LibraryMusic
-                                        else -> Icons.Default.Search
-                                    }, contentDescription = tab
-                                )
-                            },
-                            label = { Text(tab) }
-                        )
+                Column {
+                    if (nowPlayingTitle != null) {
+                        Surface(color = Panel, modifier = Modifier.fillMaxWidth()) {
+                            Row(
+                                Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(Modifier.weight(1f)) {
+                                    Text(nowPlayingTitle ?: "Nothing playing", fontWeight = FontWeight.SemiBold, maxLines = 1)
+                                    Text(nowPlayingArtist ?: "Local library", color = Color.LightGray, style = MaterialTheme.typography.bodySmall, maxLines = 1)
+                                }
+                                IconButton(onClick = { controller?.seekToPreviousMediaItem() }) {
+                                    Icon(Icons.Default.SkipPrevious, "Previous")
+                                }
+                                IconButton(onClick = {
+                                    controller?.let { player ->
+                                        if (player.isPlaying) player.pause() else player.play()
+                                    }
+                                }) {
+                                    Icon(if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow, if (isPlaying) "Pause" else "Play", tint = Accent)
+                                }
+                                IconButton(onClick = { controller?.seekToNextMediaItem() }) {
+                                    Icon(Icons.Default.SkipNext, "Next")
+                                }
+                            }
+                        }
+                    }
+                    NavigationBar(containerColor = Panel) {
+                        listOf("Home", "Search", "Library").forEach { tab ->
+                            NavigationBarItem(
+                                selected = selectedTab == tab,
+                                onClick = { selectedTab = tab },
+                                icon = {
+                                    Icon(
+                                        when (tab) {
+                                            "Home" -> Icons.Default.Home
+                                            "Library" -> Icons.Default.LibraryMusic
+                                            else -> Icons.Default.Search
+                                        }, contentDescription = tab
+                                    )
+                                },
+                                label = { Text(tab) }
+                            )
+                        }
                     }
                 }
             }
