@@ -1,40 +1,41 @@
 # Unified Music — Android music player
 
-A native Android music-player foundation built with Kotlin, Jetpack Compose, and AndroidX Media3.
+A native Android music player built with Kotlin, Jetpack Compose, and AndroidX Media3.
 
-## Implemented in the current milestone
+## Implemented
 
-- Reads on-device audio through Android MediaStore after the user grants audio permission.
-- Performs the MediaStore query on an IO dispatcher rather than blocking the UI thread.
-- Plays local tracks through an ExoPlayer hosted in a MediaSessionService.
-- Builds a queue from the local library, exposes a queue screen, and provides previous/next playback controls.
-- Includes a mini-player and a dedicated Now Playing screen with seeking, shuffle, and repeat modes.
-- Saves liked local tracks with Preferences DataStore and filters the Library to liked songs.
-- Creates, persists, and deletes local playlists; add/remove device tracks and play a playlist-specific queue.
-- Displays local album artwork when Android MediaStore provides it, including the mini-player, queue, and Now Playing screen.
-- Searches local track title, artist, and album metadata.
-- Builds a debug APK through GitHub Actions and runs JVM unit tests before packaging.
+- Scans and plays audio stored on the device through Android MediaStore.
+- Performs library scanning on an IO dispatcher so large libraries do not block the UI.
+- Provides queue browsing, previous/next, seek, shuffle/repeat, mini-player, and full Now Playing screen.
+- Displays album artwork when provided by Android MediaStore or Audius.
+- Saves liked local tracks and user-created local playlists using Preferences DataStore.
+- Supports create/delete playlists, add/remove local tracks, and playlist-specific playback queues.
+- Searches the local library and Audius's public catalogue, then streams eligible Audius tracks inside the app's Media3 player.
+- GitHub Actions runs JVM unit tests before compiling and uploading a debug APK.
+
+## Online music provider
+
+The first in-app streaming adapter is Audius, using the provider's track-search and track-stream routes. Search results are marked **AUDIUS** and streamed directly inside the player. Only tracks marked streamable by the provider are offered. Provider availability and individual track availability can change.
+
+For improved API stability/rate limits, create an Audius API key and add it as the GitHub Actions repository secret **AUDIUS_API_KEY**. The build injects it into the app and sends it in request headers. A public discovery-provider endpoint is tried as a fallback. Do not add an Audius bearer token to the Android app.
+
+**This is not YouTube Music integration.** YouTube's official API policies do not allow an API client to separate audio from videos or enable background playback of YouTube video content. A future YouTube feature must use an authorized, policy-compliant playback experience. Spotify playback also needs its own authorized SDK/integration.
 
 ## Current limitations
 
-- Demo catalogue rows are UI-only and cannot be played.
-- YouTube Music and Spotify account linking, provider-backed streaming, lyrics, and online downloads are not implemented yet.
-- Playlists and favourites are currently local-only and reference tracks found by Android MediaStore.
-- A successful CI build verifies compilation and unit tests; it does not replace installing and testing the APK on a physical Android device.
+- Audius search/playback depends on the provider and network; individual tracks may not be available in every region.
+- Favourites and playlists are local to this installation and store MediaStore track IDs; they do not sync with Audius or another device.
+- Lyrics, recommendations, online playlist sync, offline downloads, and Audius account sign-in are not implemented.
+- CI confirms compilation and JVM unit tests; it does not replace installing the APK on a physical device and trying local/streamed tracks.
+- The artifact is a debug APK, not a Play Store release, and is retained for 14 days.
 
-## Build without Android Studio
+## Download the APK without Android Studio
 
 1. Open the repository's **Actions** tab.
-2. Select the latest successful **Build Android APK** workflow run.
+2. Open the latest successful **Build Android APK** run.
 3. Download the **UnifiedMusic-debug-apk** artifact and extract **app-debug.apk**.
-4. Transfer the APK to an Android phone and install it. Android may ask you to allow installation from the browser or file manager used to open it.
+4. Transfer it to your Android phone and allow installation from the file manager/browser if Android prompts you.
 
-The artifact is a debug APK, not a Play Store release. The workflow retains each artifact for 14 days.
+## Structure
 
-## YouTube integration note
-
-The app should use documented and authorized provider capabilities only. The official YouTube API policies prohibit audio separation and background playback of YouTube audiovisual content through API clients. A future provider integration needs a compliant playback strategy and must not collect a user's Google password.
-
-## Architecture direction
-
-Keep provider adapters behind catalog/domain interfaces instead of calling APIs from composables. Treat local playback and any online provider as separate sources so unsupported demo items can never masquerade as playable tracks.
+Provider requests live in AudiusCatalog; Compose screens call the catalog interface rather than networking directly. The local library and online catalogue remain separate track sources so a non-playable demo row cannot masquerade as a stream.
