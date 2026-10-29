@@ -202,7 +202,7 @@ private fun UnifiedMusicApp() {
                 nowPlayingTitle = metadata.title?.toString()?.takeIf { it.isNotBlank() }
                 nowPlayingArtist = metadata.artist?.toString()?.takeIf { it.isNotBlank() }
                 nowPlayingArtworkUri = metadata.artworkUri?.toString()
-                nowPlayingSourceUrl = metadata.mediaUri?.toString()
+                nowPlayingSourceUrl = activeController.currentMediaItem?.requestMetadata?.mediaUri?.toString()
                 nowPlayingSourceLabel = if (activeController.currentMediaItem?.mediaId?.startsWith("audius:") == true) {
                     "Audius streaming"
                 } else {
@@ -335,6 +335,10 @@ private fun UnifiedMusicApp() {
                         .setArtist(item.artist)
                         .setAlbumTitle(item.album ?: if (item.source == TrackSource.AUDIUS) "Audius" else null)
                         .setArtworkUri(item.artworkUrl?.let(Uri::parse))
+                        .build()
+                )
+                .setRequestMetadata(
+                    MediaItem.RequestMetadata.Builder()
                         .setMediaUri(item.sourceUrl?.let(Uri::parse))
                         .build()
                 )
