@@ -9,6 +9,11 @@ on:
 permissions:
   contents: read
 
+# Keep only the newest build for a branch active when commits are pushed rapidly.
+concurrency:
+  group: build-apk-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
     runs-on: ubuntu-latest

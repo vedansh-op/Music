@@ -49,7 +49,9 @@ import com.vedansh.unifiedmusic.catalog.TrackSource
 import com.vedansh.unifiedmusic.playback.MusicPlaybackService
 import coil.compose.AsyncImage
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 private val Ink = Color(0xFF101114)
@@ -276,6 +278,7 @@ private fun UnifiedMusicApp() {
             isSearchingOnline = false
         } else {
             delay(350L)
+            onlineTracks = emptyList()
             isSearchingOnline = true
             onlineSearchError = null
             try {
@@ -286,7 +289,9 @@ private fun UnifiedMusicApp() {
                 onlineTracks = emptyList()
                 onlineSearchError = "Audius search couldn't connect. Your local results are still available."
             } finally {
-                isSearchingOnline = false
+                if (currentCoroutineContext().isActive) {
+                    isSearchingOnline = false
+                }
             }
         }
     }

@@ -8,10 +8,7 @@ import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
 import com.vedansh.unifiedmusic.BuildConfig
 
-/**
- * Background playback host. The first UI milestone uses a demo catalog;
- * wire MediaController commands and authorized/local media items in the next slice.
- */
+/** Hosts the Media3 player and session for foreground-service/background audio playback. */
 class MusicPlaybackService : MediaSessionService() {
     private var player: ExoPlayer? = null
     private var mediaSession: MediaSession? = null

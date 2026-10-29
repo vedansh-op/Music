@@ -1,6 +1,7 @@
 package com.vedansh.unifiedmusic.catalog
 
 import com.vedansh.unifiedmusic.BuildConfig
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -61,6 +62,8 @@ class AudiusCatalog : MusicCatalog {
                         )
                     }
                 }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (exception: Exception) {
                 lastFailure = exception
             }
