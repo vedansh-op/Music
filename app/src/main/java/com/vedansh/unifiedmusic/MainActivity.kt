@@ -41,7 +41,6 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
-import com.vedansh.unifiedmusic.catalog.AudiusCatalog
 import com.vedansh.unifiedmusic.catalog.FavoritesRepository
 import com.vedansh.unifiedmusic.catalog.LocalMusicRepository
 import com.vedansh.unifiedmusic.catalog.LocalPlaylist
@@ -50,10 +49,6 @@ import com.vedansh.unifiedmusic.catalog.Track
 import com.vedansh.unifiedmusic.catalog.TrackSource
 import com.vedansh.unifiedmusic.playback.MusicPlaybackService
 import coil.compose.AsyncImage
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 private val Ink = Color(0xFF101114)
@@ -71,7 +66,6 @@ class MainActivity : ComponentActivity() {
 private fun UnifiedMusicApp() {
     val context = LocalContext.current
     val repository = remember { LocalMusicRepository(context.applicationContext) }
-    val catalog = remember { AudiusCatalog() }
     val favoritesRepository = remember { FavoritesRepository(context.applicationContext) }
     val favoriteIds by favoritesRepository.favoriteTrackIds.collectAsState(initial = emptySet())
     val playlistsRepository = remember { LocalPlaylistsRepository(context.applicationContext) }
@@ -94,12 +88,6 @@ private fun UnifiedMusicApp() {
     var permissionDenied by remember { mutableStateOf(false) }
     var isLoadingLibrary by remember { mutableStateOf(false) }
     var libraryError by remember { mutableStateOf<String?>(null) }
-    var onlineTracks by remember { mutableStateOf<List<Track>>(emptyList()) }
-    var isSearchingOnline by remember { mutableStateOf(false) }
-    var onlineSearchError by remember { mutableStateOf<String?>(null) }
-    var featuredTracks by remember { mutableStateOf<List<Track>>(emptyList()) }
-    var isLoadingFeatured by remember { mutableStateOf(false) }
-    var featuredError by remember { mutableStateOf<String?>(null) }
     var nowPlayingTitle by remember { mutableStateOf<String?>(null) }
     var nowPlayingArtist by remember { mutableStateOf<String?>(null) }
     var playbackError by remember { mutableStateOf<String?>(null) }
@@ -162,21 +150,7 @@ private fun UnifiedMusicApp() {
         pendingTrackForPlaylist = null
     }
 
-    fun refreshFeatured() {
-        scope.launch {
-            isLoadingFeatured = true
-            featuredError = null
-            try {
-                featuredTracks = catalog.trending()
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (_: Exception) {
-                featuredError = "Couldn't load Audius trending right now. Check your connection and retry."
-            } finally {
-                isLoadingFeatured = false
-            }
-        }
-    }
+
 
     val permission = if (Build.VERSION.SDK_INT >= 33) {
         Manifest.permission.READ_MEDIA_AUDIO
@@ -192,7 +166,6 @@ private fun UnifiedMusicApp() {
 
     LaunchedEffect(Unit) {
         if (repository.hasReadPermission()) refreshLocalTracks()
-        refreshFeatured()
     }
 
     DisposableEffect(context) {
@@ -225,11 +198,7 @@ private fun UnifiedMusicApp() {
                 nowPlayingArtist = metadata.artist?.toString()?.takeIf { it.isNotBlank() }
                 nowPlayingArtworkUri = metadata.artworkUri?.toString()
                 nowPlayingSourceUrl = activeController.currentMediaItem?.requestMetadata?.mediaUri?.toString()
-                nowPlayingSourceLabel = if (activeController.currentMediaItem?.mediaId?.startsWith("audius:") == true) {
-                    "Audius streaming"
-                } else {
-                    "On-device music"
-                }
+                nowPlayingSourceLabel = "On-device music"
                 isPlaying = activeController.isPlaying
                 playbackPositionMs = activeController.currentPosition.coerceAtLeast(0L)
                 val currentDuration = activeController.duration
@@ -248,13 +217,10 @@ private fun UnifiedMusicApp() {
                     syncPlaybackState()
                 }
 
+
+
                 override fun onPlayerError(error: PlaybackException) {
-                    val isAudiusTrack = activeController.currentMediaItem?.mediaId?.startsWith("audius:") == true
-                    playbackError = if (isAudiusTrack) {
-                        "This Audius stream couldn't be played. Try another result or open its original track."
-                    } else {
-                        "This track couldn't be played. Check the file and try another track."
-                    }
+                    playbackError = "This track couldn't be played. Check the file and try another track."
                     isPlaying = false
                 }
 
@@ -307,38 +273,15 @@ private fun UnifiedMusicApp() {
         }
     }
 
-    LaunchedEffect(query, selectedTab) {
-        if (selectedTab != "Search" || query.isBlank()) {
-            onlineTracks = emptyList()
-            onlineSearchError = null
-            isSearchingOnline = false
-        } else {
-            onlineTracks = emptyList()
-            isSearchingOnline = true
-            onlineSearchError = null
-            delay(350L)
-            try {
-                onlineTracks = catalog.search(query)
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (_: Exception) {
-                onlineTracks = emptyList()
-                onlineSearchError = "Audius search couldn't connect. Your local results are still available."
-            } finally {
-                if (currentCoroutineContext().isActive) {
-                    isSearchingOnline = false
-                }
-            }
-        }
-    }
 
-    val results = remember(query, localTracks, onlineTracks) {
+
+    val results = remember(query, localTracks) {
         if (query.isBlank()) emptyList()
         else localTracks.filter {
             it.title.contains(query, ignoreCase = true) ||
                 it.artist.contains(query, ignoreCase = true) ||
                 (it.album?.contains(query, ignoreCase = true) == true)
-        } + onlineTracks
+        }
     }
     val visibleLibraryTracks = remember(localTracks, favoriteIds, libraryFilter) {
         if (libraryFilter == "Liked") localTracks.filter { it.id in favoriteIds } else localTracks
@@ -349,25 +292,21 @@ private fun UnifiedMusicApp() {
         localTracks.filter { it.id in ids }
     }
 
-    fun playTrack(
-        track: Track,
-        queueSource: List<Track> = if (track.source == TrackSource.AUDIUS) onlineTracks else localTracks
-    ) {
+
+
+    fun playTrack(track: Track, queueSource: List<Track> = localTracks) {
         val activeController = controller ?: return
         playbackError = null
-        val playableTracks = queueSource.filter {
-            it.source == TrackSource.LOCAL || (it.source == TrackSource.AUDIUS && !it.streamUrl.isNullOrBlank())
-        }
+        val playableTracks = queueSource.filter { it.source == TrackSource.LOCAL }
         val queue = playableTracks.map { item ->
-            val mediaUri = if (item.source == TrackSource.LOCAL) item.providerId else item.streamUrl.orEmpty()
             MediaItem.Builder()
                 .setMediaId(item.id)
-                .setUri(mediaUri)
+                .setUri(item.providerId)
                 .setMediaMetadata(
                     MediaMetadata.Builder()
                         .setTitle(item.title)
                         .setArtist(item.artist)
-                        .setAlbumTitle(item.album ?: if (item.source == TrackSource.AUDIUS) "Audius" else null)
+                        .setAlbumTitle(item.album)
                         .setArtworkUri(item.artworkUrl?.let(Uri::parse))
                         .build()
                 )
@@ -566,7 +505,7 @@ private fun UnifiedMusicApp() {
                     Text(
                         when (selectedTab) {
                             "Library" -> "Music stored on this device."
-                            "Search" -> "Search your device and streamable Audius tracks."
+                            "Search" -> "Search music stored on this device."
                             else -> "Your personal music space."
                         },
                         color = Color.LightGray
@@ -630,41 +569,19 @@ private fun UnifiedMusicApp() {
                             Spacer(Modifier.height(16.dp))
                             Text("SEARCH RESULTS", color = Color.LightGray, style = MaterialTheme.typography.labelLarge)
                             Spacer(Modifier.height(8.dp))
-                            if (onlineSearchError != null) {
-                                Text(
-                                    onlineSearchError.orEmpty(),
-                                    color = Color(0xFFFFB4AB),
-                                    style = MaterialTheme.typography.bodySmall
-                                )
-                                Spacer(Modifier.height(8.dp))
-                            }
+
                             if (query.isBlank()) {
-                                EmptyState("Search your music", "Find local tracks and streamable tracks on Audius.")
+                                EmptyState("Search your music", "Find tracks stored on this device.")
                             } else {
-                                if (isSearchingOnline) {
-                                    Row(
-                                        Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        CircularProgressIndicator(modifier = Modifier.size(18.dp), color = Accent, strokeWidth = 2.dp)
-                                        Spacer(Modifier.width(10.dp))
-                                        Text("Searching Audius…", color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
-                                    }
-                                }
-                                if (results.isEmpty() && !isSearchingOnline) {
+
+                                if (results.isEmpty()) {
                                     EmptyState("No matches", "Try another song or artist.")
                                 } else if (results.isNotEmpty()) {
                                     LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                         items(results, key = { it.id }) { track ->
                                             TrackRow(
                                                 track = track,
-                                                onClick = {
-                                                    when (track.source) {
-                                                        TrackSource.LOCAL -> playTrack(track)
-                                                        TrackSource.AUDIUS -> playTrack(track, onlineTracks)
-                                                        else -> Unit
-                                                    }
-                                                },
+                                                onClick = { if (track.source == TrackSource.LOCAL) playTrack(track) },
                                                 isFavorite = track.id in favoriteIds,
                                                 onFavoriteClick = if (track.source == TrackSource.LOCAL) ({ toggleFavorite(track) }) else null,
                                                 onAddToPlaylist = if (track.source == TrackSource.LOCAL) ({ pendingTrackForPlaylist = track }) else null
@@ -819,45 +736,6 @@ private fun UnifiedMusicApp() {
 
                         else -> {
                             LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                item(key = "audius-trending-heading") {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Column(Modifier.weight(1f)) {
-                                            Text("TRENDING ON AUDIUS", color = Color.LightGray, style = MaterialTheme.typography.labelLarge)
-                                            Text("Discover something new", color = Accent, style = MaterialTheme.typography.bodySmall)
-                                        }
-                                        IconButton(
-                                            enabled = !isLoadingFeatured,
-                                            onClick = { refreshFeatured() }
-                                        ) {
-                                            Icon(Icons.Default.Refresh, "Refresh trending", tint = Accent)
-                                        }
-                                        if (isLoadingFeatured) {
-                                            CircularProgressIndicator(
-                                                modifier = Modifier.size(18.dp),
-                                                color = Accent,
-                                                strokeWidth = 2.dp
-                                            )
-                                        }
-                                    }
-                                }
-                                if (featuredTracks.isEmpty()) {
-                                    item(key = "audius-trending-empty") {
-                                        Text(
-                                            featuredError ?: if (isLoadingFeatured) "Loading trending music…" else "No trending tracks are available right now.",
-                                            color = Color.LightGray,
-                                            style = MaterialTheme.typography.bodySmall,
-                                            modifier = Modifier.padding(vertical = 8.dp)
-                                        )
-                                    }
-                                } else {
-                                    items(featuredTracks, key = { it.id }) { track ->
-                                        TrackRow(
-                                            track = track,
-                                            onClick = { playTrack(track, featuredTracks) }
-                                        )
-                                    }
-                                }
-
                                 item(key = "local-library-heading") {
                                     Text("ON THIS DEVICE", color = Color.LightGray, style = MaterialTheme.typography.labelLarge)
                                 }
@@ -1055,7 +933,7 @@ private fun NowPlayingScreen(
         Text(artist, style = MaterialTheme.typography.bodyLarge, color = Color.LightGray, maxLines = 1, overflow = TextOverflow.Ellipsis)
         if (!sourceUrl.isNullOrBlank()) {
             TextButton(onClick = { uriHandler.openUri(sourceUrl) }) {
-                Text("Open original track on Audius", color = Accent)
+                Text("Open original track", color = Accent)
             }
         }
         if (!playbackError.isNullOrBlank()) {
@@ -1276,10 +1154,7 @@ private fun TrackRow(
                     }
                 }
                 Icon(Icons.Default.PlayArrow, "Play", tint = Accent)
-            } else if (track.source == TrackSource.AUDIUS) {
-                Text("AUDIUS", color = Accent, style = MaterialTheme.typography.labelSmall)
-                Icon(Icons.Default.PlayArrow, "Play online track", tint = Accent)
-            } else {
+            } else if (track.source == TrackSource.DEMO) {
                 Text("DEMO", color = Color.LightGray, style = MaterialTheme.typography.labelSmall)
             }
         }
