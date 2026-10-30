@@ -72,6 +72,7 @@ private val HubAccent = Color(0xFFB7F36B)
 
 class ProviderHubActivity : ComponentActivity() {
     private val spotifyRepository by lazy { SpotifyAuthRepository(applicationContext) }
+    private val providerStatus by lazy { getSharedPreferences("provider_status", MODE_PRIVATE) }
     private var spotifyRemote: SpotifyAppRemote? = null
     private var pendingYoutubeAction: ((String) -> Unit)? = null
     private var pendingSpotifyTrack: String? = null
@@ -93,6 +94,7 @@ class ProviderHubActivity : ComponentActivity() {
                     val token = authorization.accessToken
                     if (!token.isNullOrBlank()) {
                         youtubeConnected = true
+                        providerStatus.edit().putBoolean("youtube_connected", true).apply()
                         status = "YouTube account connected."
                         pendingYoutubeAction?.invoke(token)
                     } else {
@@ -110,6 +112,7 @@ class ProviderHubActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         spotifyConnected = spotifyRepository.hasStoredSession()
+        youtubeConnected = providerStatus.getBoolean("youtube_connected", false)
         setContent {
             MaterialTheme(
                 colorScheme = darkColorScheme(
@@ -191,6 +194,7 @@ class ProviderHubActivity : ComponentActivity() {
             .addOnFailureListener { exception ->
                 error = "Google authorization failed: ${exception.message.orEmpty()}. Check the Android OAuth package name and signing SHA-1 in Google Cloud."
                 pendingYoutubeAction = null
+                busy = false
             }
     }
 
@@ -202,6 +206,7 @@ class ProviderHubActivity : ComponentActivity() {
             .revokeAccess(request)
             .addOnCompleteListener {
                 youtubeConnected = false
+                providerStatus.edit().putBoolean("youtube_connected", false).apply()
                 status = "YouTube access disconnected."
             }
     }
