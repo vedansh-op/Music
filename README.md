@@ -31,14 +31,14 @@ Unified Music is a native Android music app built with Kotlin, Jetpack Compose a
 1. In [Google Cloud Console](https://console.cloud.google.com/), create or select a project and enable **YouTube Data API v3**.
 2. Configure the OAuth consent screen and add your Google account as a test user while the app is in testing.
 3. Register an Android OAuth client for package `com.vedansh.unifiedmusic` and the signing certificate SHA-1 used by the installed APK.
-4. Create an API key for YouTube Data API v3 and add it as the GitHub Actions repository secret `YOUTUBE_API_KEY`.
+4. Enable YouTube Data API v3. An API key can be added as the GitHub Actions repository secret `YOUTUBE_API_KEY` as a fallback; the app also sends the Google OAuth access token after the user approves access.
 5. On first connect, tap **Connect Google** in the app and approve the YouTube read-only permission in Google's own authorization UI.
 
 The SHA-1 value must match the build that is installed. For a locally built APK, get it from Android Studio's Gradle signing report. If you use a different release keystore, register that certificate fingerprint as well.
 
 ## Build
 
-GitHub Actions downloads the official Spotify App Remote AAR, runs JVM unit tests, builds the debug APK, and uploads it as the `UnifiedMusic-debug-apk` artifact. The build works without the provider secrets, but account connections/search need those credentials configured.
+GitHub Actions downloads the official Spotify App Remote AAR, runs JVM unit tests, builds the debug APK, and uploads it as the `UnifiedMusic-debug-apk` artifact. The build works without provider secrets. Spotify needs its Client ID; YouTube needs an Android OAuth client and YouTube Data API v3 enabled in the linked Google Cloud project. The YouTube API key is optional when Google OAuth is configured.
 
 For local builds, first run:
 
