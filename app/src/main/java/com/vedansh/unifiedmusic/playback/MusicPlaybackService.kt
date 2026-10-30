@@ -1,12 +1,10 @@
 package com.vedansh.unifiedmusic.playback
 
 import androidx.media3.datasource.DefaultDataSource
-import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
-import com.vedansh.unifiedmusic.BuildConfig
 
 /** Hosts the Media3 player and session for foreground-service/background audio playback. */
 class MusicPlaybackService : MediaSessionService() {
@@ -15,11 +13,10 @@ class MusicPlaybackService : MediaSessionService() {
 
     override fun onCreate() {
         super.onCreate()
-        val httpDataSourceFactory = DefaultHttpDataSource.Factory()
-        if (BuildConfig.AUDIUS_API_KEY.isNotBlank()) {
-            httpDataSourceFactory.setDefaultRequestProperties(mapOf("x-api-key" to BuildConfig.AUDIUS_API_KEY))
-        }
-        val dataSourceFactory = DefaultDataSource.Factory(this, httpDataSourceFactory)
+        // Keep the default Media3 sources for local files, content URIs and ordinary HTTP.
+        // Provider authentication is handled by the YouTube and Spotify integrations,
+        // not by injecting obsolete Audius headers into every media request.
+        val dataSourceFactory = DefaultDataSource.Factory(this)
         val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory)
         val exoPlayer = ExoPlayer.Builder(this).setMediaSourceFactory(mediaSourceFactory).build()
         player = exoPlayer
