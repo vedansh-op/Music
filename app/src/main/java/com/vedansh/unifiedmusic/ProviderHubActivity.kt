@@ -79,6 +79,7 @@ class ProviderHubActivity : ComponentActivity() {
 
     private var youtubeConnected by mutableStateOf(false)
     private var spotifyConnected by mutableStateOf(false)
+    private var spotifyClientId by mutableStateOf("")
     private var busy by mutableStateOf(false)
     private var query by mutableStateOf("")
     private var results by mutableStateOf<List<StreamTrack>>(emptyList())
@@ -115,6 +116,7 @@ class ProviderHubActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         spotifyConnected = spotifyRepository.hasStoredSession()
         youtubeConnected = providerStatus.getBoolean("youtube_connected", false)
+        spotifyClientId = providerStatus.getString("spotify_client_id", BuildConfig.SPOTIFY_CLIENT_ID).orEmpty()
         setContent {
             MaterialTheme(
                 colorScheme = darkColorScheme(
@@ -129,7 +131,8 @@ class ProviderHubActivity : ComponentActivity() {
                 ProviderHubScreen(
                     youtubeConnected = youtubeConnected,
                     spotifyConnected = spotifyConnected,
-                    spotifyConfigured = BuildConfig.SPOTIFY_CLIENT_ID.isNotBlank(),
+                    spotifyConfigured = spotifyClientId.isNotBlank(),
+                    spotifyClientId = spotifyClientId,
                     youtubeConfigured = true,
                     busy = busy,
                     query = query,
@@ -137,6 +140,8 @@ class ProviderHubActivity : ComponentActivity() {
                     status = status,
                     error = error,
                     onQueryChange = { query = it },
+                    onSpotifyClientIdChange = { spotifyClientId = it },
+                    onSaveSpotifyClientId = { saveSpotifyClientId() },
                     onConnectYouTube = { requestYouTubeAuthorization() },
                     onDisconnectYouTube = { disconnectYouTube() },
                     onConnectSpotify = { connectSpotify() },
@@ -215,12 +220,26 @@ class ProviderHubActivity : ComponentActivity() {
             }
     }
 
-    private fun connectSpotify() {
-        val clientId = BuildConfig.SPOTIFY_CLIENT_ID
-        if (clientId.isBlank()) {
-            error = "Add SPOTIFY_CLIENT_ID in GitHub Actions secrets or the spotifyClientId Gradle property."
+    private fun saveSpotifyClientId() {
+        val value = spotifyClientId.trim()
+        if (value.length < 10 || value.any(Char::isWhitespace)) {
+            error = "Enter a valid Spotify Client ID from your Spotify Developer Dashboard."
             return
         }
+        spotifyClientId = value
+        providerStatus.edit().putString("spotify_client_id", value).apply()
+        error = null
+        status = "Spotify app configuration saved on this device."
+    }
+
+    private fun connectSpotify() {
+        val clientId = spotifyClientId.trim()
+        if (clientId.isBlank()) {
+            error = "Add your Spotify Client ID in the Spotify setup section first."
+            return
+        }
+        providerStatus.edit().putString("spotify_client_id", clientId).apply()
+        spotifyClientId = clientId
         runCatching { spotifyRepository.createAuthorization(clientId) }
             .onSuccess { authorization ->
                 status = "Opening Spotify sign-in. Approve access for Unified Music."
@@ -253,7 +272,7 @@ class ProviderHubActivity : ComponentActivity() {
         busy = true
         lifecycleScope.launch {
             try {
-                spotifyRepository.exchangeCode(code, verifier, BuildConfig.SPOTIFY_CLIENT_ID)
+                spotifyRepository.exchangeCode(code, verifier, spotifyClientId.trim())
                 spotifyConnected = true
                 status = "Spotify account authorized. Connecting to Spotify playback…"
                 error = null
@@ -268,7 +287,7 @@ class ProviderHubActivity : ComponentActivity() {
     }
 
     private fun connectSpotifyRemote() {
-        val clientId = BuildConfig.SPOTIFY_CLIENT_ID
+        val clientId = spotifyClientId.trim()
         if (clientId.isBlank()) return
         val params = ConnectionParams.Builder(clientId)
             .setRedirectUri(SpotifyAuthRepository.REDIRECT_URI)
@@ -336,7 +355,7 @@ class ProviderHubActivity : ComponentActivity() {
 
         lifecycleScope.launch {
             try {
-                val token = spotifyRepository.freshAccessToken(BuildConfig.SPOTIFY_CLIENT_ID)
+                val token = spotifyRepository.freshAccessToken(spotifyClientId.trim())
                 if (token == null) {
                     error = listOfNotNull(error, "Connect Spotify to search its catalogue.").joinToString("\n")
                 } else {
@@ -382,6 +401,7 @@ private fun ProviderHubScreen(
     youtubeConnected: Boolean,
     spotifyConnected: Boolean,
     spotifyConfigured: Boolean,
+    spotifyClientId: String,
     youtubeConfigured: Boolean,
     busy: Boolean,
     query: String,
@@ -389,6 +409,8 @@ private fun ProviderHubScreen(
     status: String,
     error: String?,
     onQueryChange: (String) -> Unit,
+    onSpotifyClientIdChange: (String) -> Unit,
+    onSaveSpotifyClientId: () -> Unit,
     onConnectYouTube: () -> Unit,
     onDisconnectYouTube: () -> Unit,
     onConnectSpotify: () -> Unit,
@@ -427,6 +449,14 @@ private fun ProviderHubScreen(
                     configured = spotifyConfigured,
                     actionLabel = if (spotifyConnected) "Disconnect" else "Connect Spotify",
                     onAction = if (spotifyConnected) onDisconnectSpotify else onConnectSpotify
+                )
+            }
+            item {
+                SpotifySetupCard(
+                    clientId = spotifyClientId,
+                    onClientIdChange = onSpotifyClientIdChange,
+                    onSave = onSaveSpotifyClientId,
+                    configured = spotifyConfigured
                 )
             }
             item {
@@ -480,6 +510,46 @@ private fun ProviderHubScreen(
                     style = MaterialTheme.typography.bodySmall
                 )
                 Spacer(Modifier.height(24.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun SpotifySetupCard(
+    clientId: String,
+    onClientIdChange: (String) -> Unit,
+    onSave: () -> Unit,
+    configured: Boolean
+) {
+    Card(colors = CardDefaults.cardColors(containerColor = HubPanel), shape = RoundedCornerShape(18.dp)) {
+        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("SPOTIFY APP SETUP", color = HubAccent, style = MaterialTheme.typography.labelLarge)
+            Text(
+                if (configured) "Client ID saved on this device. You can update it below."
+                else "One-time setup: create an app in the Spotify Developer Dashboard and paste its Client ID here.",
+                color = Color.LightGray,
+                style = MaterialTheme.typography.bodySmall
+            )
+            OutlinedTextField(
+                value = clientId,
+                onValueChange = onClientIdChange,
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("Spotify Client ID") },
+                singleLine = true,
+                shape = RoundedCornerShape(14.dp)
+            )
+            Text(
+                "Register this exact redirect URI in your Spotify app: unifiedmusic://spotify/callback. Never enter a Spotify Client Secret here.",
+                color = Color.Gray,
+                style = MaterialTheme.typography.bodySmall
+            )
+            Button(
+                onClick = onSave,
+                enabled = clientId.isNotBlank(),
+                colors = ButtonDefaults.buttonColors(containerColor = HubAccent, contentColor = HubBackground)
+            ) {
+                Text("Save Spotify setup")
             }
         }
     }
