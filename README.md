@@ -42,9 +42,9 @@ The SHA-1 value must match the build that is installed. GitHub-hosted runners no
 
 1. Generate a keystore locally with Java's `keytool` (keep the file and passwords private):
    ```sh
-   keytool -genkeypair -v -keystore unifiedmusic-ci.jks -alias unifiedmusic -keyalg RSA -keysize 2048 -validity 10000
+   keytool -genkeypair -v -keystore unifiedmusic-ci.jks -storetype JKS -alias unifiedmusic -keyalg RSA -keysize 2048 -validity 10000
    ```
-2. Base64-encode the keystore. On macOS/Linux: `base64 < unifiedmusic-ci.jks | tr -d '\\n'`. On Windows PowerShell: `[Convert]::ToBase64String([IO.File]::ReadAllBytes("unifiedmusic-ci.jks"))`.
+2. Base64-encode the keystore. On macOS/Linux: `base64 < unifiedmusic-ci.jks | tr -d '\n'`. On Windows PowerShell: `[Convert]::ToBase64String([IO.File]::ReadAllBytes("unifiedmusic-ci.jks"))`.
 3. In GitHub, open **Settings → Secrets and variables → Actions** and add these four repository secrets: `ANDROID_SIGNING_KEYSTORE_BASE64` (the encoded keystore), `ANDROID_SIGNING_KEYSTORE_PASSWORD`, `ANDROID_SIGNING_KEY_ALIAS` (for the command above, `unifiedmusic`), and `ANDROID_SIGNING_KEY_PASSWORD`.
 4. Run the APK workflow again. It will sign the debug APK with that stable key and print the stable SHA-1/SHA-256. Register that SHA-1 once in the Android OAuth client for package `com.vedansh.unifiedmusic`.
 
