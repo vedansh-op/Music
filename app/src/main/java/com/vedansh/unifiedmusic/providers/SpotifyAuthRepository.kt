@@ -103,7 +103,7 @@ class SpotifyAuthRepository(context: Context) {
     suspend fun searchTracks(query: String, accessToken: String): List<StreamTrack> =
         withContext(Dispatchers.IO) {
             val encoded = URLEncoder.encode(query.trim(), Charsets.UTF_8.name())
-            val connection = URL("$API_BASE/search?type=track&limit=25&q=$encoded")
+            val connection = URL("$API_BASE/search?type=track&limit=10&q=$encoded")
                 .openConnection() as HttpURLConnection
             connection.requestMethod = "GET"
             connection.connectTimeout = TIMEOUT_MS
@@ -199,7 +199,7 @@ class SpotifyAuthRepository(context: Context) {
         private const val AUTHORIZE_URL = "https://accounts.spotify.com/authorize"
         private const val TOKEN_URL = "https://accounts.spotify.com/api/token"
         private const val API_BASE = "https://api.spotify.com/v1"
-        private const val SCOPES = "app-remote-control user-read-private user-read-email user-library-read playlist-read-private"
+        private const val SCOPES = "app-remote-control"
         private const val TIMEOUT_MS = 15_000
     }
 }
