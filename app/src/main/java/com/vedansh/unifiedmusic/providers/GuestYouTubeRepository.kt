@@ -316,7 +316,7 @@ object GuestYouTubeRepository {
 
             request.headers().forEach { (name, values) ->
                 builder.removeHeader(name)
-                values.forEach(builder::addHeader)
+                values.forEach { headerValue -> builder.addHeader(name, headerValue) }
             }
 
             client.newCall(builder.build()).execute().use { response ->
