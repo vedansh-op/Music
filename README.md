@@ -5,7 +5,7 @@ Unified Music is a native Android music app built with Kotlin, Jetpack Compose a
 ## Current app structure
 
 - The account hub is the launcher screen.
-- YouTube: Google account authorization with the `youtube.readonly` scope, YouTube Data API search, and a visible embedded YouTube player for playback.
+- YouTube: Google account authorization with an explicit account chooser, live token validation against the signed-in channel, YouTube Data API music search, account playlist browsing, and a visible YouTube player for playback. OAuth failures surface their Google status code and the likely configuration fix instead of silently leaving a stale "connected" flag.
 - Spotify: Spotify Authorization Code with PKCE, encrypted token storage, Spotify Web API track search, and Spotify App Remote playback through the official Spotify app.
 - The existing local music library, local playlists and Media3 player are still in the project and can be opened from the hub.
 
@@ -30,10 +30,11 @@ Unified Music is a native Android music app built with Kotlin, Jetpack Compose a
 ### YouTube / Google
 
 1. In [Google Cloud Console](https://console.cloud.google.com/), create or select a project and enable **YouTube Data API v3**.
-2. Configure the OAuth consent screen and add your Google account as a test user while the app is in testing.
-3. Register an Android OAuth client for package `com.vedansh.unifiedmusic` and the SHA-1 printed by the GitHub Actions step **Print APK signing certificate SHA-1** for the APK run you install.
-4. Enable YouTube Data API v3. An API key can be added as the GitHub Actions repository secret `YOUTUBE_API_KEY` as a fallback; the app also sends the Google OAuth access token after the user approves access.
-5. On first connect, tap **Connect Google** in the app and approve the YouTube read-only permission in Google's own authorization UI.
+2. Configure the OAuth consent screen as **External** for personal Google accounts. While its publishing status is **Testing**, add every Google account you want to test under **Test users**. Accounts not on that list are blocked even when the Android login UI successfully shows an account chooser. Do not choose **Internal** unless every tester belongs to the same Google Workspace organization.
+3. Register an Android OAuth client for package `com.vedansh.unifiedmusic` and the SHA-1 printed by the GitHub Actions step **Print APK signing certificate SHA-1** for the exact APK run you install.
+4. Enable **YouTube Data API v3** in the same Google Cloud project. An API key can be added as the GitHub Actions repository secret `YOUTUBE_API_KEY` as a fallback; the app also sends the Google OAuth access token after the user approves access.
+5. On first connect, tap **Connect Google**. The app now opens an explicit account chooser, requests the `youtube.readonly` permission, then verifies the selected account by calling `channels.list(mine=true)`. A green connected state is shown only after this API check succeeds.
+6. For troubleshooting: Google status code `10` means the package/SHA-1 registration doesn't match; `403 access_denied` in OAuth test mode means the selected Google account must be added as a Test user; `accessNotConfigured` means YouTube Data API v3 is not enabled in the project; `quotaExceeded` means that project's YouTube quota has run out.
 
 The SHA-1 value must match the build that is installed. Each GitHub-hosted debug build may use a new debug signing key, so register the fingerprint for the exact APK you downloaded. For a locally built APK, get it from Android Studio's Gradle signing report. If you use a different release keystore, register that certificate fingerprint as well.
 
@@ -57,7 +58,7 @@ Provide local credentials as Gradle properties or environment variables:
 
 - Users authenticate with Google and Spotify directly through the providers' own consent screens. The app never asks for provider passwords.
 - Spotify access and refresh tokens are stored in Android encrypted shared preferences.
-- Google access tokens are held in memory and requested again through Google Identity when required.
+- Google access tokens are held in memory and obtained through Google Identity when required. The app no longer persists a bare "YouTube connected" boolean as proof of authorization; it verifies access with the YouTube Data API before showing the account as connected.
 - Never commit API keys, OAuth secrets, refresh tokens or user credentials to the repository.
 
 ## Existing local player
