@@ -507,6 +507,11 @@ private fun UnifiedMusicApp() {
                         sourceLabel = nowPlayingSourceLabel,
                         sourceUrl = nowPlayingSourceUrl,
                         playbackError = playbackError,
+                        onRetryPlayback = {
+                            controller?.prepare()
+                            controller?.play()
+                            playbackError = null
+                        },
                         isPlaying = isPlaying,
                         positionMs = playbackPositionMs,
                         durationMs = durationMs,
@@ -977,6 +982,7 @@ private fun NowPlayingScreen(
     sourceLabel: String,
     sourceUrl: String?,
     playbackError: String?,
+    onRetryPlayback: () -> Unit,
     isPlaying: Boolean,
     positionMs: Long,
     durationMs: Long,
@@ -1058,6 +1064,9 @@ private fun NowPlayingScreen(
                 color = Color(0xFFFFB4AB),
                 style = MaterialTheme.typography.bodySmall
             )
+            TextButton(onClick = onRetryPlayback) {
+                Text("Retry playback", color = Accent)
+            }
         }
         Spacer(Modifier.height(12.dp))
 
