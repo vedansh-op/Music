@@ -14,8 +14,8 @@ class MusicPlaybackService : MediaSessionService() {
     override fun onCreate() {
         super.onCreate()
         // Keep the default Media3 sources for local files, content URIs and ordinary HTTP.
-        // Provider authentication is handled by the YouTube and Spotify integrations,
-        // not by injecting obsolete Audius headers into every media request.
+        // Provider authentication is handled by its own integration. Keep local Media3
+        // requests independent from the account-provider authentication flows.
         val dataSourceFactory = DefaultDataSource.Factory(this)
         val mediaSourceFactory = DefaultMediaSourceFactory(dataSourceFactory)
         val exoPlayer = ExoPlayer.Builder(this).setMediaSourceFactory(mediaSourceFactory).build()
