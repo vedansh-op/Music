@@ -100,6 +100,7 @@ class ProviderHubActivity : ComponentActivity() {
                         pendingYoutubeAction?.invoke(token)
                     } else {
                         error = "Google did not return YouTube access."
+                        busy = false
                     }
                 }.onFailure {
                     error = "YouTube authorization was not completed: ${it.message.orEmpty()}"
@@ -191,6 +192,7 @@ class ProviderHubActivity : ComponentActivity() {
                     val token = result.accessToken
                     if (token.isNullOrBlank()) {
                         error = "Google returned an empty YouTube access token."
+                        busy = false
                     } else {
                         youtubeConnected = true
                         providerStatus.edit().putBoolean("youtube_connected", true).apply()
