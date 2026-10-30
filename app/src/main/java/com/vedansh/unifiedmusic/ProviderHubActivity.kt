@@ -101,7 +101,7 @@ class ProviderHubActivity : ComponentActivity() {
             val returnedIntent = result.data
             if (returnedIntent == null) {
                 val message = if (result.resultCode == Activity.RESULT_CANCELED) {
-                    "Google sign-in was closed before it returned an authorization result. Check the OAuth test-user and consent-screen settings if this happened immediately after choosing an account."
+                    "Google did not complete authorization. Since several accounts have failed, check the shared Google Cloud setup: use External audience for personal accounts, add each account under Test users while publishing status is Testing, register package com.vedansh.unifiedmusic with this APK's SHA-1, and enable YouTube Data API v3 in the same project."
                 } else {
                     "Google sign-in returned no result (activity result code ${result.resultCode}). Try again and check the Google Cloud OAuth configuration."
                 }
