@@ -113,11 +113,34 @@ class GuestTasteRepository(context: Context) {
 
     @Synchronized
     fun recordPlay(track: StreamTrack) {
+        recordPlay(track.title, track.artist)
+    }
+
+    @Synchronized
+    fun recordLocalPlay(title: String, artist: String) {
+        recordPlay(title, artist)
+    }
+
+    @Synchronized
+    fun recordLike(title: String, artist: String) {
+        if (title.isBlank() && artist.isBlank()) return
+        append(
+            GuestTasteSignal(
+                kind = "like",
+                title = title.take(160),
+                artist = artist.take(120),
+                timestampMillis = System.currentTimeMillis()
+            )
+        )
+    }
+
+    @Synchronized
+    private fun recordPlay(title: String, artist: String) {
         append(
             GuestTasteSignal(
                 kind = "play",
-                title = track.title.take(160),
-                artist = track.artist.take(120),
+                title = title.take(160),
+                artist = artist.take(120),
                 timestampMillis = System.currentTimeMillis()
             )
         )
