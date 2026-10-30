@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -101,11 +102,11 @@ class ProviderHubActivity : ComponentActivity() {
             val returnedIntent = result.data
             if (returnedIntent == null) {
                 val message = if (result.resultCode == Activity.RESULT_CANCELED) {
-                    "Google did not complete authorization. Since several accounts have failed, check the shared Google Cloud setup: use External audience for personal accounts, add each account under Test users while publishing status is Testing, register package com.vedansh.unifiedmusic with this APK's SHA-1, and enable YouTube Data API v3 in the same project."
+                    "Google account chooser was cancelled by the user."
                 } else {
-                    "Google sign-in returned no result (activity result code ${result.resultCode}). Try again and check the Google Cloud OAuth configuration."
+                    "Google sign-in returned no result (activity result code ${result.resultCode})."
                 }
-                failPendingYouTubeAuthorization(message)
+                failPendingYouTubeAuthorization(message, wasCancelled = result.resultCode == Activity.RESULT_CANCELED)
             } else {
                 runCatching {
                     Identity.getAuthorizationClient(this).getAuthorizationResultFromIntent(returnedIntent)
@@ -230,7 +231,8 @@ class ProviderHubActivity : ComponentActivity() {
                             }
                         }.onFailure { exception ->
                             youtubeConnected = false
-                            status = exception.message ?: "Reconnect Google to restore YouTube access."
+                            logYouTubeFailure("silent reconnect verification", exception)
+                            status = "Couldn't reconnect YouTube. Tap Connect Google to try again."
                         }
                     }
                 } else {
@@ -239,7 +241,8 @@ class ProviderHubActivity : ComponentActivity() {
             }
             .addOnFailureListener { exception ->
                 youtubeConnected = false
-                status = describeGoogleAuthorizationError(exception)
+                logYouTubeFailure("silent authorization restore", exception)
+                status = "Tap Connect Google to connect your YouTube account."
             }
     }
 
@@ -262,8 +265,9 @@ class ProviderHubActivity : ComponentActivity() {
                     error = null
                 } catch (exception: Exception) {
                     youtubeConnected = false
-                    error = exception.message ?: "Google authorization succeeded, but YouTube account verification failed."
-                    status = "Google account selected; YouTube API verification failed."
+                    logYouTubeFailure("account verification", exception)
+                    error = "Couldn't finish connecting YouTube. Please try again."
+                    status = "Your YouTube account wasn't connected."
                 } finally {
                     busy = false
                 }
@@ -326,9 +330,11 @@ class ProviderHubActivity : ComponentActivity() {
             }
     }
 
-    private fun failPendingYouTubeAuthorization(message: String) {
+    private fun failPendingYouTubeAuthorization(message: String, wasCancelled: Boolean = false) {
+        Log.w(LOG_TAG, "YouTube authorization did not complete: $message")
         youtubeConnected = false
-        error = message
+        error = if (wasCancelled) null else "Couldn't connect Google right now. Please try again."
+        status = if (wasCancelled) "Connection cancelled. You can connect Google any time." else "Your YouTube account wasn't connected."
         busy = false
         pendingYoutubeAction = null
         val failure = pendingYoutubeFailure
@@ -352,6 +358,10 @@ class ProviderHubActivity : ComponentActivity() {
         val detail = throwable.localizedMessage?.takeIf { it.isNotBlank() }
         val codeText = code?.let { " Google status code: $it." }.orEmpty()
         return listOfNotNull(explanation + codeText, detail?.let { "Details: $it" }).joinToString("\n")
+    }
+
+    private fun logYouTubeFailure(operation: String, throwable: Throwable) {
+        Log.e(LOG_TAG, "YouTube $operation failed", throwable)
     }
 
     private fun disconnectYouTube() {
@@ -394,7 +404,8 @@ class ProviderHubActivity : ComponentActivity() {
                         "Loaded ${playlists.size} playlists from your YouTube account."
                     }
                 } catch (exception: Exception) {
-                    youtubeLibraryStatus = exception.message ?: "Couldn't load YouTube playlists."
+                    logYouTubeFailure("load playlists", exception)
+                    youtubeLibraryStatus = "Couldn't load your YouTube playlists. Please try again."
                 } finally {
                     youtubeLibraryBusy = false
                 }
@@ -422,7 +433,8 @@ class ProviderHubActivity : ComponentActivity() {
                     status = "Your liked YouTube videos · ${tracks.size} loaded."
                     youtubeLibraryStatus = "Loaded your liked YouTube videos."
                 } catch (exception: Exception) {
-                    youtubeLibraryStatus = exception.message ?: "Couldn't load your liked videos."
+                    logYouTubeFailure("load liked videos", exception)
+                    youtubeLibraryStatus = "Couldn't load your liked videos. Please try again."
                 } finally {
                     youtubeLibraryBusy = false
                 }
@@ -455,7 +467,8 @@ class ProviderHubActivity : ComponentActivity() {
                     status = "${playlist.title} · ${tracks.size} videos loaded."
                     youtubeLibraryStatus = "Opened ${playlist.title}."
                 } catch (exception: Exception) {
-                    youtubeLibraryStatus = exception.message ?: "Couldn't open this playlist."
+                    logYouTubeFailure("open playlist", exception)
+                    youtubeLibraryStatus = "Couldn't open this playlist. Please try again."
                 } finally {
                     youtubeLibraryBusy = false
                 }
@@ -591,7 +604,8 @@ class ProviderHubActivity : ComponentActivity() {
                     youtubeNextPageToken = page.nextPageToken
                     results = (results + page.tracks).distinctBy { it.id }
                 } catch (exception: Exception) {
-                    error = listOfNotNull(error, exception.message).joinToString("\n")
+                    logYouTubeFailure("search", exception)
+                    error = listOfNotNull(error, "Couldn't search YouTube right now. Please try again.").joinToString("\n")
                 } finally {
                     busy = false
                     status = "Search results from connected providers."
@@ -640,7 +654,8 @@ class ProviderHubActivity : ComponentActivity() {
                     status = "Loaded more YouTube results."
                     error = null
                 } catch (exception: Exception) {
-                    error = exception.message ?: "Couldn't load more YouTube results."
+                    logYouTubeFailure("load more search results", exception)
+                    error = "Couldn't load more YouTube results. Please try again."
                 } finally {
                     youtubeLoadingMore = false
                 }
@@ -670,6 +685,7 @@ class ProviderHubActivity : ComponentActivity() {
     }
 
     companion object {
+        private const val LOG_TAG = "UnifiedMusic"
         private const val YOUTUBE_READ_ONLY_SCOPE = "https://www.googleapis.com/auth/youtube.readonly"
     }
 }
