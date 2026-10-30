@@ -109,6 +109,8 @@ dependencies {
     implementation("com.google.android.gms:play-services-auth:22.0.0")
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
     implementation("com.google.code.gson:gson:2.11.0")
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("com.github.TeamNewPipe:NewPipeExtractor:v0.26.5")
     implementation(files("libs/spotify-app-remote-release-0.8.0.aar"))
 
     testImplementation("junit:junit:4.13.2")
