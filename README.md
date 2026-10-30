@@ -23,8 +23,9 @@ Unified Music is a native Android music app built with Kotlin, Jetpack Compose a
 1. Create an app in [Spotify Developer Dashboard](https://developer.spotify.com/dashboard).
 2. Select Android for the integration and register package name `com.vedansh.unifiedmusic` with the app's signing fingerprint.
 3. Add this exact redirect URI: `unifiedmusic://spotify/callback`.
-4. Add the Spotify app's Client ID as the GitHub Actions repository secret `SPOTIFY_CLIENT_ID`. Do not add a client secret; this Android app uses PKCE.
-5. Install the Spotify app on the test phone and sign in to the account you want to use.
+4. Copy the app's **Client ID**. Open Unified Music, paste it into **Spotify App Setup**, and tap **Save Spotify setup**. The ID is stored on the device; no GitHub Actions secret is required. Do not enter or embed a Spotify Client Secret; this Android app uses PKCE.
+5. Install the official Spotify app on the test phone and sign in to the account you want to use.
+6. Tap **Connect Spotify** in Unified Music and approve access in Spotify's own authorization screen.
 
 ### YouTube / Google
 
@@ -38,7 +39,7 @@ The SHA-1 value must match the build that is installed. For a locally built APK,
 
 ## Build
 
-GitHub Actions downloads the official Spotify App Remote AAR, runs JVM unit tests, builds the debug APK, and uploads it as the `UnifiedMusic-debug-apk` artifact. The build works without provider secrets. Spotify needs its Client ID; YouTube needs an Android OAuth client and YouTube Data API v3 enabled in the linked Google Cloud project. The YouTube API key is optional when Google OAuth is configured.
+GitHub Actions downloads the official Spotify App Remote AAR, runs JVM unit tests, builds the debug APK, and uploads it as the `UnifiedMusic-debug-apk` artifact. The build works without provider secrets. Spotify's Client ID is entered once in the app's Spotify setup section. YouTube needs an Android OAuth client and YouTube Data API v3 enabled in the linked Google Cloud project. The YouTube API key is optional when Google OAuth is configured.
 
 For local builds, first run:
 
