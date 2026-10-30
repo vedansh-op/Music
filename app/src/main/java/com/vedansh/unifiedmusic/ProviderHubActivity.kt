@@ -173,6 +173,7 @@ class ProviderHubActivity : ComponentActivity() {
                     onSpotifyClientIdChange = { spotifyClientId = it },
                     onSaveSpotifyClientId = { saveSpotifyClientId() },
                     onLoadYouTubePlaylists = { loadYouTubePlaylists() },
+                    onLoadYouTubeLikedVideos = { loadYouTubeLikedVideos() },
                     onYouTubePlaylistClick = { playlist -> openYouTubePlaylist(playlist) },
                     onLoadMoreYouTube = { loadMoreYouTubeResults() },
                     onConnectYouTube = { connectYouTube() },
@@ -386,6 +387,28 @@ class ProviderHubActivity : ComponentActivity() {
                     }
                 } catch (exception: Exception) {
                     youtubeLibraryStatus = exception.message ?: "Couldn't load YouTube playlists."
+                } finally {
+                    youtubeLibraryBusy = false
+                }
+            }
+        }
+    }
+
+    private fun loadYouTubeLikedVideos() {
+        youtubeLibraryBusy = true
+        youtubeLibraryStatus = "Loading videos liked by your Google account…"
+        requestYouTubeAuthorization(forceAccountSelection = false) { token ->
+            lifecycleScope.launch {
+                try {
+                    val tracks = withContext(Dispatchers.IO) {
+                        YouTubeCatalog.getLikedVideos(token, BuildConfig.YOUTUBE_API_KEY)
+                    }
+                    results = tracks
+                    youtubeNextPageToken = null
+                    status = "Your liked YouTube videos · ${tracks.size} loaded."
+                    youtubeLibraryStatus = "Loaded your liked YouTube videos."
+                } catch (exception: Exception) {
+                    youtubeLibraryStatus = exception.message ?: "Couldn't load your liked videos."
                 } finally {
                     youtubeLibraryBusy = false
                 }
@@ -647,6 +670,7 @@ private fun ProviderHubScreen(
     onSpotifyClientIdChange: (String) -> Unit,
     onSaveSpotifyClientId: () -> Unit,
     onLoadYouTubePlaylists: () -> Unit,
+    onLoadYouTubeLikedVideos: () -> Unit,
     onYouTubePlaylistClick: (YouTubePlaylist) -> Unit,
     onLoadMoreYouTube: () -> Unit,
     onConnectYouTube: () -> Unit,
@@ -711,7 +735,8 @@ private fun ProviderHubScreen(
                 YouTubeLibraryHeader(
                     loading = youtubeLibraryBusy,
                     status = youtubeLibraryStatus,
-                    onLoad = onLoadYouTubePlaylists
+                    onLoadPlaylists = onLoadYouTubePlaylists,
+                    onLoadLiked = onLoadYouTubeLikedVideos
                 )
             }
             items(youtubePlaylists, key = { it.id }) { playlist ->
@@ -787,20 +812,29 @@ private fun ProviderHubScreen(
 private fun YouTubeLibraryHeader(
     loading: Boolean,
     status: String,
-    onLoad: () -> Unit
+    onLoadPlaylists: () -> Unit,
+    onLoadLiked: () -> Unit
 ) {
     Card(colors = CardDefaults.cardColors(containerColor = HubPanel), shape = RoundedCornerShape(18.dp)) {
         Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("YOUR YOUTUBE LIBRARY", color = HubAccent, style = MaterialTheme.typography.labelLarge)
-            Text("Browse playlists from the Google account you connect. This uses the official YouTube Data API.", color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
+            Text("Browse your account playlists or the videos you've liked, using the official YouTube Data API.", color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
             Button(
-                onClick = onLoad,
+                onClick = onLoadPlaylists,
                 enabled = !loading,
                 colors = ButtonDefaults.buttonColors(containerColor = HubAccent, contentColor = HubBackground)
             ) {
                 if (loading) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = HubBackground)
                 else Icon(Icons.Default.MusicNote, contentDescription = null)
                 Text("  Load my YouTube playlists")
+            }
+            Button(
+                onClick = onLoadLiked,
+                enabled = !loading,
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF343840), contentColor = Color.White)
+            ) {
+                Icon(Icons.Default.PlayArrow, contentDescription = null)
+                Text("  Load my liked videos")
             }
             Text(status, color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
         }
