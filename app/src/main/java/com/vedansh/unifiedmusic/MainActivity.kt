@@ -96,6 +96,9 @@ private fun UnifiedMusicApp() {
     var onlineTracks by remember { mutableStateOf<List<Track>>(emptyList()) }
     var isSearchingOnline by remember { mutableStateOf(false) }
     var onlineSearchError by remember { mutableStateOf<String?>(null) }
+    var featuredTracks by remember { mutableStateOf<List<Track>>(emptyList()) }
+    var isLoadingFeatured by remember { mutableStateOf(false) }
+    var featuredError by remember { mutableStateOf<String?>(null) }
     var nowPlayingTitle by remember { mutableStateOf<String?>(null) }
     var nowPlayingArtist by remember { mutableStateOf<String?>(null) }
     var nowPlayingSourceLabel by remember { mutableStateOf("On-device music") }
@@ -171,6 +174,18 @@ private fun UnifiedMusicApp() {
 
     LaunchedEffect(Unit) {
         if (repository.hasReadPermission()) refreshLocalTracks()
+        isLoadingFeatured = true
+        featuredError = null
+        try {
+            featuredTracks = catalog.trending()
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            featuredTracks = emptyList()
+            featuredError = "Audius trending is unavailable right now."
+        } finally {
+            isLoadingFeatured = false
+        }
     }
 
     DisposableEffect(context) {
@@ -778,14 +793,50 @@ private fun UnifiedMusicApp() {
                         }
 
                         else -> {
-                            Text("ON THIS DEVICE", color = Color.LightGray, style = MaterialTheme.typography.labelLarge)
-                            Spacer(Modifier.height(8.dp))
-                            if (localTracks.isEmpty() && isLoadingLibrary) {
-                                LoadingState("Scanning your music library…")
-                            } else if (localTracks.isEmpty()) {
-                                EmptyState("Start with your own music", "Allow audio access to scan songs stored on this device.")
-                            } else {
-                                LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                item(key = "audius-trending-heading") {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Column(Modifier.weight(1f)) {
+                                            Text("TRENDING ON AUDIUS", color = Color.LightGray, style = MaterialTheme.typography.labelLarge)
+                                            Text("Discover something new", color = Accent, style = MaterialTheme.typography.bodySmall)
+                                        }
+                                        if (isLoadingFeatured) {
+                                            CircularProgressIndicator(
+                                                modifier = Modifier.size(18.dp),
+                                                color = Accent,
+                                                strokeWidth = 2.dp
+                                            )
+                                        }
+                                    }
+                                }
+                                if (featuredTracks.isEmpty()) {
+                                    item(key = "audius-trending-empty") {
+                                        Text(
+                                            featuredError ?: if (isLoadingFeatured) "Loading trending music…" else "No trending tracks are available right now.",
+                                            color = Color.LightGray,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            modifier = Modifier.padding(vertical = 8.dp)
+                                        )
+                                    }
+                                } else {
+                                    items(featuredTracks, key = { it.id }) { track ->
+                                        TrackRow(
+                                            track = track,
+                                            onClick = { playTrack(track, featuredTracks) }
+                                        )
+                                    }
+                                }
+
+                                item(key = "local-library-heading") {
+                                    Text("ON THIS DEVICE", color = Color.LightGray, style = MaterialTheme.typography.labelLarge)
+                                }
+                                if (localTracks.isEmpty() && isLoadingLibrary) {
+                                    item(key = "local-library-loading") { LoadingState("Scanning your music library…") }
+                                } else if (localTracks.isEmpty()) {
+                                    item(key = "local-library-empty") {
+                                        EmptyState("Start with your own music", "Allow audio access to scan songs stored on this device.")
+                                    }
+                                } else {
                                     items(localTracks.take(8), key = { it.id }) { track ->
                                         TrackRow(
                                             track = track,

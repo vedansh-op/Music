@@ -11,6 +11,7 @@ A native Android music player built with Kotlin, Jetpack Compose, and AndroidX M
 - Saves liked local tracks and user-created local playlists using Preferences DataStore.
 - Supports create/delete playlists, add/remove local tracks, and playlist-specific playback queues.
 - Searches the local library and Audius's public catalogue, then streams eligible Audius tracks inside the app's Media3 player.
+- Loads weekly trending Audius tracks on Home and plays them in their own queue.
 - GitHub Actions runs JVM unit tests before compiling and uploading a debug APK.
 
 ## Online music provider

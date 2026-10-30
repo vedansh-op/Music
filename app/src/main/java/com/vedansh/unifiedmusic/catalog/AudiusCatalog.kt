@@ -10,13 +10,23 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
 
-/** Audius track search/stream adapter using the provider's REST endpoints. */
+/** Audius track search and discovery adapter using the provider's REST endpoints. */
 class AudiusCatalog : MusicCatalog {
-    override suspend fun search(query: String): List<Track> = withContext(Dispatchers.IO) {
+    override suspend fun search(query: String): List<Track> {
         val cleanQuery = query.trim()
-        if (cleanQuery.isEmpty()) return@withContext emptyList()
-
+        if (cleanQuery.isEmpty()) return emptyList()
         val encodedQuery = URLEncoder.encode(cleanQuery, Charsets.UTF_8.name())
+        return loadTracks { base ->
+            "$base/tracks/search?query=$encodedQuery&limit=$RESULT_LIMIT&app_name=$APP_NAME"
+        }
+    }
+
+    override suspend fun trending(): List<Track> =
+        loadTracks { base ->
+            "$base/tracks/trending?time=week&limit=$TRENDING_LIMIT&app_name=$APP_NAME"
+        }
+
+    private suspend fun loadTracks(urlForBase: (String) -> String): List<Track> = withContext(Dispatchers.IO) {
         val bases = if (BuildConfig.AUDIUS_API_KEY.isNotBlank()) {
             listOf(API_BASE, DISCOVERY_BASE)
         } else {
@@ -26,14 +36,13 @@ class AudiusCatalog : MusicCatalog {
         var lastFailure: Exception? = null
         for (base in bases) {
             try {
-                val url = "$base/tracks/search?query=$encodedQuery&limit=$RESULT_LIMIT&app_name=$APP_NAME"
-                val response = getJson(url)
+                val response = getJson(urlForBase(base))
                 val data = response.optJSONArray("data")
-                    ?: throw IOException("Audius returned an unexpected search response")
+                    ?: throw IOException("Audius returned an unexpected track response")
                 return@withContext buildList {
                     for (index in 0 until data.length()) {
                         val item = data.optJSONObject(index) ?: continue
-                        AudiusTrackMapper.fromJson(item, base, APP_NAME)?.let(::add)
+                        AudiusTrackMapper.fromJson(item, base, APP_NAME)?.let { add(it) }
                     }
                 }
             } catch (cancelled: CancellationException) {
@@ -42,7 +51,7 @@ class AudiusCatalog : MusicCatalog {
                 lastFailure = exception
             }
         }
-        throw IOException("Audius search is currently unavailable. Check your connection and try again.", lastFailure)
+        throw IOException("Audius is currently unavailable. Check your connection and try again.", lastFailure)
     }
 
     private fun getJson(requestUrl: String): JSONObject {
@@ -67,6 +76,7 @@ class AudiusCatalog : MusicCatalog {
     private companion object {
         const val APP_NAME = "UnifiedMusic"
         const val RESULT_LIMIT = 25
+        const val TRENDING_LIMIT = 12
         const val CONNECT_TIMEOUT_MS = 12_000
         const val READ_TIMEOUT_MS = 18_000
         const val API_BASE = "https://api.audius.co/v1"
