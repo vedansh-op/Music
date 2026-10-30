@@ -5,7 +5,7 @@ Unified Music is a native Android music app built with Kotlin, Jetpack Compose a
 ## Current app structure
 
 - The account hub is the launcher screen.
-- YouTube: Google account authorization with an explicit account chooser, live token validation against the signed-in channel, YouTube Data API music search, account playlist browsing, and a visible YouTube player for playback. OAuth failures surface their Google status code and the likely configuration fix instead of silently leaving a stale "connected" flag.
+- YouTube: Google account authorization with an explicit account chooser, live token validation against the signed-in channel, YouTube Data API music search with pagination, signed-in playlist browsing, liked-video library access, and a visible YouTube player for playback. OAuth failures surface their Google status code and the likely configuration fix instead of silently leaving a stale "connected" flag.
 - Spotify: Spotify Authorization Code with PKCE, encrypted token storage, Spotify Web API track search, and Spotify App Remote playback through the official Spotify app.
 - The existing local music library, local playlists and Media3 player are still in the project and can be opened from the hub.
 
