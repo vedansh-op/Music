@@ -89,6 +89,9 @@ class ProviderHubActivity : ComponentActivity() {
     private var youtubePlaylists by mutableStateOf<List<YouTubePlaylist>>(emptyList())
     private var youtubeLibraryBusy by mutableStateOf(false)
     private var youtubeLibraryStatus by mutableStateOf("Load playlists from the Google account connected to YouTube.")
+    private var youtubeNextPageToken by mutableStateOf<String?>(null)
+    private var youtubeSearchQuery by mutableStateOf("")
+    private var youtubeLoadingMore by mutableStateOf(false)
     private var status by mutableStateOf("Connect your own accounts to start searching.")
     private var error by mutableStateOf<String?>(null)
 
@@ -162,6 +165,8 @@ class ProviderHubActivity : ComponentActivity() {
                     youtubePlaylists = youtubePlaylists,
                     youtubeLibraryBusy = youtubeLibraryBusy,
                     youtubeLibraryStatus = youtubeLibraryStatus,
+                    youtubeHasMore = !youtubeNextPageToken.isNullOrBlank(),
+                    youtubeLoadingMore = youtubeLoadingMore,
                     status = status,
                     error = error,
                     onQueryChange = { query = it },
@@ -169,6 +174,7 @@ class ProviderHubActivity : ComponentActivity() {
                     onSaveSpotifyClientId = { saveSpotifyClientId() },
                     onLoadYouTubePlaylists = { loadYouTubePlaylists() },
                     onYouTubePlaylistClick = { playlist -> openYouTubePlaylist(playlist) },
+                    onLoadMoreYouTube = { loadMoreYouTubeResults() },
                     onConnectYouTube = { connectYouTube() },
                     onDisconnectYouTube = { disconnectYouTube() },
                     onConnectSpotify = { connectSpotify() },
@@ -525,6 +531,8 @@ class ProviderHubActivity : ComponentActivity() {
             return
         }
         results = emptyList()
+        youtubeNextPageToken = null
+        youtubeSearchQuery = cleanQuery
         error = null
         busy = true
         status = "Searching YouTube and Spotify…"
@@ -532,10 +540,11 @@ class ProviderHubActivity : ComponentActivity() {
         requestYouTubeAuthorization(forceAccountSelection = false) { token ->
             lifecycleScope.launch {
                 try {
-                    val tracks = withContext(Dispatchers.IO) {
-                        YouTubeCatalog.search(cleanQuery, token, BuildConfig.YOUTUBE_API_KEY)
+                    val page = withContext(Dispatchers.IO) {
+                        YouTubeCatalog.searchPage(cleanQuery, token, BuildConfig.YOUTUBE_API_KEY)
                     }
-                    results = (results + tracks).distinctBy { it.id }
+                    youtubeNextPageToken = page.nextPageToken
+                    results = (results + page.tracks).distinctBy { it.id }
                 } catch (exception: Exception) {
                     error = listOfNotNull(error, exception.message).joinToString("\n")
                 } finally {
@@ -558,6 +567,35 @@ class ProviderHubActivity : ComponentActivity() {
                 error = listOfNotNull(error, exception.message).joinToString("\n")
             } finally {
                 status = "Search results from connected providers."
+            }
+        }
+    }
+
+    private fun loadMoreYouTubeResults() {
+        val pageToken = youtubeNextPageToken ?: return
+        val searchTerm = youtubeSearchQuery.ifBlank { query.trim() }
+        if (searchTerm.isBlank()) return
+        youtubeLoadingMore = true
+        requestYouTubeAuthorization(forceAccountSelection = false) { accessToken ->
+            lifecycleScope.launch {
+                try {
+                    val page = withContext(Dispatchers.IO) {
+                        YouTubeCatalog.searchPage(
+                            query = searchTerm,
+                            accessToken = accessToken,
+                            apiKey = BuildConfig.YOUTUBE_API_KEY,
+                            pageToken = pageToken
+                        )
+                    }
+                    results = (results + page.tracks).distinctBy { it.id }
+                    youtubeNextPageToken = page.nextPageToken
+                    status = "Loaded more YouTube results."
+                    error = null
+                } catch (exception: Exception) {
+                    error = exception.message ?: "Couldn't load more YouTube results."
+                } finally {
+                    youtubeLoadingMore = false
+                }
             }
         }
     }
@@ -601,6 +639,8 @@ private fun ProviderHubScreen(
     youtubePlaylists: List<YouTubePlaylist>,
     youtubeLibraryBusy: Boolean,
     youtubeLibraryStatus: String,
+    youtubeHasMore: Boolean,
+    youtubeLoadingMore: Boolean,
     status: String,
     error: String?,
     onQueryChange: (String) -> Unit,
@@ -608,6 +648,7 @@ private fun ProviderHubScreen(
     onSaveSpotifyClientId: () -> Unit,
     onLoadYouTubePlaylists: () -> Unit,
     onYouTubePlaylistClick: (YouTubePlaylist) -> Unit,
+    onLoadMoreYouTube: () -> Unit,
     onConnectYouTube: () -> Unit,
     onDisconnectYouTube: () -> Unit,
     onConnectSpotify: () -> Unit,
@@ -708,6 +749,20 @@ private fun ProviderHubScreen(
             } else {
                 items(results.size) { index ->
                     StreamTrackRow(results[index], onClick = { onTrackClick(results[index]) })
+                }
+            }
+            if (youtubeHasMore) {
+                item {
+                    Button(
+                        onClick = onLoadMoreYouTube,
+                        enabled = !youtubeLoadingMore,
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = HubPanel, contentColor = HubAccent)
+                    ) {
+                        if (youtubeLoadingMore) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = HubAccent)
+                        else Icon(Icons.Default.Link, contentDescription = null)
+                        Text("  Load more YouTube results")
+                    }
                 }
             }
             item {
