@@ -49,6 +49,7 @@ import com.vedansh.unifiedmusic.catalog.Track
 import com.vedansh.unifiedmusic.catalog.TrackSource
 import com.vedansh.unifiedmusic.playback.MusicPlaybackService
 import coil.compose.AsyncImage
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 private val Ink = Color(0xFF101114)
