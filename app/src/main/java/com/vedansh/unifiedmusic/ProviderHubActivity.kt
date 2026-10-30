@@ -1,6 +1,7 @@
 package com.vedansh.unifiedmusic
 
 import android.app.Activity
+import android.content.ComponentName
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
@@ -8,6 +9,11 @@ import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
+import androidx.media3.common.MediaItem
+import androidx.media3.common.MediaMetadata
+import androidx.media3.session.MediaController
+import androidx.media3.session.SessionToken
 import androidx.activity.result.IntentSenderRequest
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -64,11 +70,13 @@ import com.spotify.android.appremote.api.Connector
 import com.spotify.android.appremote.api.SpotifyAppRemote
 import com.vedansh.unifiedmusic.providers.GuestSuggestion
 import com.vedansh.unifiedmusic.providers.GuestTasteRepository
+import com.vedansh.unifiedmusic.providers.GuestYouTubeRepository
 import com.vedansh.unifiedmusic.providers.SpotifyAuthRepository
 import com.vedansh.unifiedmusic.providers.StreamProvider
 import com.vedansh.unifiedmusic.providers.StreamTrack
 import com.vedansh.unifiedmusic.providers.YouTubeCatalog
 import com.vedansh.unifiedmusic.providers.YouTubePlaylist
+import com.vedansh.unifiedmusic.playback.MusicPlaybackService
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -85,6 +93,8 @@ class ProviderHubActivity : ComponentActivity() {
     private var showWelcome by mutableStateOf(false)
     private var guestSuggestions by mutableStateOf<List<GuestSuggestion>>(emptyList())
     private var spotifyRemote: SpotifyAppRemote? = null
+    private var guestMediaController: MediaController? = null
+    private var guestMediaControllerFuture: com.google.common.util.concurrent.ListenableFuture<MediaController>? = null
     private var pendingYoutubeAction: ((String) -> Unit)? = null
     private var pendingYoutubeFailure: (() -> Unit)? = null
     private var pendingSpotifyTrack: String? = null
@@ -217,6 +227,10 @@ class ProviderHubActivity : ComponentActivity() {
     override fun onDestroy() {
         spotifyRemote?.let { SpotifyAppRemote.disconnect(it) }
         spotifyRemote = null
+        guestMediaController?.release()
+        guestMediaController = null
+        guestMediaControllerFuture?.let(MediaController::releaseFuture)
+        guestMediaControllerFuture = null
         super.onDestroy()
     }
 
@@ -669,60 +683,33 @@ class ProviderHubActivity : ComponentActivity() {
         youtubeSearchQuery = cleanQuery
         error = null
         busy = true
-        status = if (guestMode) "Searching public YouTube as a guest…" else "Searching available music catalogues…"
+        status = "Searching YouTube Music…"
 
-        // Public catalogue search does not need a Google account. The API key is a
-        // maintainer-side app setting, never something the guest has to enter.
-        if (BuildConfig.YOUTUBE_API_KEY.isNotBlank()) {
-            lifecycleScope.launch {
-                try {
-                    val page = withContext(Dispatchers.IO) {
-                        YouTubeCatalog.searchPage(cleanQuery, "", BuildConfig.YOUTUBE_API_KEY)
-                    }
-                    youtubeNextPageToken = page.nextPageToken
-                    results = (results + page.tracks).distinctBy { it.id }
-                    error = null
-                } catch (exception: Exception) {
-                    logYouTubeFailure("public catalogue search", exception)
-                    error = "Couldn't load YouTube results right now. You can still browse YouTube without signing in."
-                } finally {
-                    busy = false
-                    status = if (guestMode) "Guest search complete." else "Search complete."
+        // Public YouTube Music discovery is the guest experience. Google login is
+        // deliberately not part of search or playback; it is only used for the
+        // signed-in user's private library and likes.
+        lifecycleScope.launch {
+            try {
+                val page = withContext(Dispatchers.IO) {
+                    GuestYouTubeRepository.searchPage(cleanQuery)
                 }
-            }
-        } else if (guestMode) {
-            // No account is required for ordinary YouTube browsing. If this build
-            // has no public Data API key, hand the search to YouTube itself rather
-            // than showing a broken Google sign-in prompt.
-            busy = false
-            status = "Opening public YouTube search. No sign-in needed."
-            error = "In-app catalogue access isn't configured in this build, so YouTube is opening its own guest search."
-            openGuestYouTubeSearch(cleanQuery)
-        } else {
-            requestYouTubeAuthorization(
-                forceAccountSelection = false,
-                onFailure = { busy = false }
-            ) { token ->
-                lifecycleScope.launch {
-                    try {
-                        val page = withContext(Dispatchers.IO) {
-                            YouTubeCatalog.searchPage(cleanQuery, token, BuildConfig.YOUTUBE_API_KEY)
-                        }
-                        youtubeNextPageToken = page.nextPageToken
-                        results = (results + page.tracks).distinctBy { it.id }
-                    } catch (exception: Exception) {
-                        logYouTubeFailure("search", exception)
-                        error = "Couldn't search YouTube right now. Please try again."
-                    } finally {
-                        busy = false
-                        status = "YouTube search complete."
-                    }
-                }
+                results = page.tracks
+                youtubeNextPageToken = page.nextPageToken
+                status = "YouTube Music guest search complete."
+                error = if (page.tracks.isEmpty()) {
+                    "No YouTube Music tracks found. Try a song title or artist."
+                } else null
+            } catch (exception: Exception) {
+                Log.w(LOG_TAG, "YouTube Music guest search failed", exception)
+                error = "YouTube Music search couldn't load right now. Check your connection and try again."
+                status = "Guest search is still available; no Google sign-in is required."
+            } finally {
+                busy = false
             }
         }
 
-        // Search Spotify only when the user has already connected it. Guest mode
-        // never launches an unexpected account chooser.
+        // Spotify remains separate and optional. It is searched only after the
+        // user has already connected it; guest search never opens Spotify login.
         if (spotifyConnected) {
             lifecycleScope.launch {
                 try {
@@ -740,47 +727,25 @@ class ProviderHubActivity : ComponentActivity() {
     }
 
     private fun loadMoreYouTubeResults() {
-        val pageToken = youtubeNextPageToken ?: return
+        val continuation = youtubeNextPageToken ?: return
         val searchTerm = youtubeSearchQuery.ifBlank { query.trim() }
         if (searchTerm.isBlank()) return
         youtubeLoadingMore = true
-
-        fun loadPage(accessToken: String) {
-            lifecycleScope.launch {
-                try {
-                    val page = withContext(Dispatchers.IO) {
-                        YouTubeCatalog.searchPage(
-                            query = searchTerm,
-                            accessToken = accessToken,
-                            apiKey = BuildConfig.YOUTUBE_API_KEY,
-                            pageToken = pageToken
-                        )
-                    }
-                    results = (results + page.tracks).distinctBy { it.id }
-                    youtubeNextPageToken = page.nextPageToken
-                    status = "Loaded more YouTube results."
-                    error = null
-                } catch (exception: Exception) {
-                    logYouTubeFailure("load more search results", exception)
-                    error = "Couldn't load more YouTube results. Please try again."
-                } finally {
-                    youtubeLoadingMore = false
+        lifecycleScope.launch {
+            try {
+                val page = withContext(Dispatchers.IO) {
+                    GuestYouTubeRepository.searchPage(searchTerm, continuation)
                 }
-            }
-        }
-
-        when {
-            BuildConfig.YOUTUBE_API_KEY.isNotBlank() -> loadPage("")
-            guestMode -> {
+                results = (results + page.tracks).distinctBy { it.id }
+                youtubeNextPageToken = page.nextPageToken
+                status = "Loaded more YouTube Music results."
+                error = null
+            } catch (exception: Exception) {
+                Log.w(LOG_TAG, "YouTube Music pagination failed", exception)
+                error = "Couldn't load more YouTube Music results. Please try again."
+            } finally {
                 youtubeLoadingMore = false
-                openGuestYouTubeSearch(searchTerm)
-                status = "Continue browsing this search on YouTube."
             }
-            else -> requestYouTubeAuthorization(
-                forceAccountSelection = false,
-                onFailure = { youtubeLoadingMore = false },
-                action = ::loadPage
-            )
         }
     }
 
@@ -789,11 +754,7 @@ class ProviderHubActivity : ComponentActivity() {
         guestSuggestions = guestTaste.suggestions()
         error = null
         when (track.provider) {
-            StreamProvider.YOUTUBE -> startActivity(
-                Intent(this, YouTubePlayerActivity::class.java)
-                    .putExtra(YouTubePlayerActivity.EXTRA_VIDEO_ID, track.playbackId)
-                    .putExtra(YouTubePlayerActivity.EXTRA_TITLE, track.title)
-            )
+            StreamProvider.YOUTUBE -> playYouTubeMusicTrack(track)
             StreamProvider.SPOTIFY -> {
                 val remote = spotifyRemote
                 if (remote != null) {
@@ -805,6 +766,52 @@ class ProviderHubActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    private fun playYouTubeMusicTrack(track: StreamTrack) {
+        fun start(controller: MediaController) {
+            val item = MediaItem.Builder()
+                .setMediaId(track.id)
+                .setUri("https://music.youtube.com/watch?v=${track.playbackId}")
+                .setMediaMetadata(
+                    MediaMetadata.Builder()
+                        .setTitle(track.title)
+                        .setArtist(track.artist)
+                        .setArtworkUri(track.artworkUrl?.let(Uri::parse))
+                        .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
+                        .build()
+                )
+                .build()
+            controller.setMediaItem(item)
+            controller.prepare()
+            controller.play()
+            status = "Playing ${track.title} from YouTube Music."
+        }
+
+        guestMediaController?.let {
+            start(it)
+            return
+        }
+
+        val future = MediaController.Builder(
+            this,
+            SessionToken(this, ComponentName(this, MusicPlaybackService::class.java))
+        ).buildAsync()
+        guestMediaControllerFuture = future
+        future.addListener(
+            {
+                runCatching { future.get() }
+                    .onSuccess { controller ->
+                        guestMediaController = controller
+                        start(controller)
+                    }
+                    .onFailure { throwable ->
+                        Log.e(LOG_TAG, "Could not connect to YouTube Music player", throwable)
+                        error = "Couldn't start YouTube Music playback. Please try another track."
+                    }
+            },
+            ContextCompat.getMainExecutor(this)
+        )
     }
 
     companion object {
@@ -896,7 +903,7 @@ private fun ProviderHubScreen(
             item {
                 ProviderCard(
                     title = "YouTube",
-                    subtitle = "Connect Google for your personal playlists and liked videos. Public discovery can work as a guest.",
+                    subtitle = "Optional Google account · Personal YouTube Music library and liked songs. Guest search/playback works without it.",
                     connected = youtubeConnected,
                     configured = youtubeConfigured,
                     busy = busy,
@@ -952,12 +959,12 @@ private fun ProviderHubScreen(
             }
             /* playlist rows are intentionally hidden in guest mode; private account libraries need sign-in. */
             item {
-                Text("SEARCH MUSIC", color = HubAccent, style = MaterialTheme.typography.labelLarge)
+                Text("YOUTUBE MUSIC", color = HubAccent, style = MaterialTheme.typography.labelLarge)
                 OutlinedTextField(
                     value = query,
                     onValueChange = onQueryChange,
                     modifier = Modifier.fillMaxWidth(),
-                    label = { Text("Song, artist or album") },
+                    label = { Text("Search songs, artists, albums or playlists") },
                     singleLine = true,
                     shape = RoundedCornerShape(16.dp)
                 )
@@ -971,9 +978,9 @@ private fun ProviderHubScreen(
                     else Icon(Icons.Default.Link, contentDescription = null)
                     Text(
                         when {
-                            guestMode -> "  Search YouTube as Guest"
-                            spotifyConnected -> "  Search YouTube + Spotify"
-                            else -> "  Search YouTube"
+                            guestMode -> "  Search YouTube Music"
+                            spotifyConnected -> "  Search YouTube Music + Spotify"
+                            else -> "  Search YouTube Music"
                         }
                     )
                 }
@@ -984,8 +991,8 @@ private fun ProviderHubScreen(
                         Column(Modifier.fillMaxWidth().padding(18.dp)) {
                             Text("No results yet", fontWeight = FontWeight.SemiBold)
                             Text(
-                                if (guestMode) "Search public YouTube without an account, or choose one of your personalised suggestions above."
-                                else "Connect an account or continue as a guest, then search for a track.",
+                                if (guestMode) "Search the YouTube Music catalogue without signing in, or choose one of your personalised mixes above."
+                                else "Search YouTube Music now. Connect Google only when you want your personal library.",
                                 color = Color.LightGray
                             )
                         }
@@ -1018,8 +1025,8 @@ private fun ProviderHubScreen(
                 }
                 Spacer(Modifier.height(20.dp))
                 Text(
-                    if (guestMode) "Guest recommendations are calculated on this device from your searches and plays. YouTube videos use YouTube's visible player."
-                    else "YouTube uses its visible embedded player. Spotify playback is handled by the Spotify app. Provider audio is not extracted into the local Media3 player.",
+                    if (guestMode) "YouTube Music guest playback runs in the app's Media3 player. Your listening recommendations stay on this device."
+                    else "YouTube Music guest playback runs in the app's Media3 player. Google sign-in is optional for personal library features; Spotify playback uses the official Spotify app.",
                     color = Color.Gray,
                     style = MaterialTheme.typography.bodySmall
                 )
