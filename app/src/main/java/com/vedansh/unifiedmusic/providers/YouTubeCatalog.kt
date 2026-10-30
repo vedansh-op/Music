@@ -16,6 +16,11 @@ data class YouTubePlaylist(
     val itemCount: Int
 )
 
+data class YouTubeSearchPage(
+    val tracks: List<StreamTrack>,
+    val nextPageToken: String?
+)
+
 object YouTubeCatalog {
     /**
      * Validates the granted YouTube scope against a real, account-scoped Data API request.
@@ -113,23 +118,37 @@ object YouTubeCatalog {
         }
     }
 
-    suspend fun search(query: String, accessToken: String, apiKey: String): List<StreamTrack> =
-        withContext(Dispatchers.IO) {
-            require(query.isNotBlank()) { "Enter a song or artist to search." }
-            if (accessToken.isBlank() && apiKey.isBlank()) {
-                throw IOException("Connect Google and configure YouTube Data API v3 before searching.")
+    suspend fun search(
+        query: String,
+        accessToken: String,
+        apiKey: String
+    ): List<StreamTrack> = searchPage(query, accessToken, apiKey).tracks
+
+    suspend fun searchPage(
+        query: String,
+        accessToken: String,
+        apiKey: String,
+        pageToken: String? = null
+    ): YouTubeSearchPage = withContext(Dispatchers.IO) {
+        require(query.isNotBlank()) { "Enter a song or artist to search." }
+        if (accessToken.isBlank() && apiKey.isBlank()) {
+            throw IOException("Connect Google and configure YouTube Data API v3 before searching.")
+        }
+        val params = buildString {
+            append("part=snippet&type=video&videoEmbeddable=true&maxResults=25")
+            append("&order=relevance&regionCode=IN&relevanceLanguage=en")
+            append("&q=").append(encode(query.trim()))
+            pageToken?.takeIf { it.isNotBlank() }?.let {
+                append("&pageToken=").append(encode(it))
             }
-            val params = buildString {
-                append("part=snippet&type=video&videoEmbeddable=true&maxResults=25")
-                append("&order=relevance&regionCode=IN&relevanceLanguage=en")
-                append("&q=").append(encode(query.trim()))
-            }
-            val root = getJson(
-                url = withApiKey("https://www.googleapis.com/youtube/v3/search?$params", apiKey),
-                accessToken = accessToken
-            )
-            val items = root.optJSONArray("items") ?: return@withContext emptyList()
-            buildList {
+        }
+        val root = getJson(
+            url = withApiKey("https://www.googleapis.com/youtube/v3/search?$params", apiKey),
+            accessToken = accessToken
+        )
+        val items = root.optJSONArray("items")
+        val tracks = buildList {
+            if (items != null) {
                 for (index in 0 until items.length()) {
                     val item = items.optJSONObject(index) ?: continue
                     val videoId = item.optJSONObject("id")?.optString("videoId").orEmpty()
@@ -152,6 +171,11 @@ object YouTubeCatalog {
                 }
             }
         }
+        YouTubeSearchPage(
+            tracks = tracks,
+            nextPageToken = root.optString("nextPageToken").takeIf { it.isNotBlank() }
+        )
+    }
 
     private fun getJson(url: String, accessToken: String): JSONObject {
         val connection = URL(url).openConnection() as HttpURLConnection
