@@ -724,6 +724,7 @@ private fun ProviderHubScreen(
                     subtitle = "Google account · YouTube catalogue and visible YouTube player",
                     connected = youtubeConnected,
                     configured = youtubeConfigured,
+                    busy = busy,
                     actionLabel = if (youtubeConnected) "Disconnect" else "Connect Google",
                     onAction = if (youtubeConnected) onDisconnectYouTube else onConnectYouTube
                 )
@@ -734,6 +735,7 @@ private fun ProviderHubScreen(
                     subtitle = "Spotify account · Search and play through the Spotify app",
                     connected = spotifyConnected,
                     configured = spotifyConfigured,
+                    busy = busy,
                     actionLabel = if (spotifyConnected) "Disconnect" else "Connect Spotify",
                     onAction = if (spotifyConnected) onDisconnectSpotify else onConnectSpotify
                 )
@@ -779,6 +781,7 @@ private fun ProviderHubScreen(
                 )
                 Button(
                     onClick = onSearch,
+                    enabled = !busy,
                     modifier = Modifier.fillMaxWidth(),
                     colors = ButtonDefaults.buttonColors(containerColor = HubAccent, contentColor = HubBackground)
                 ) {
@@ -942,6 +945,7 @@ private fun ProviderCard(
     subtitle: String,
     connected: Boolean,
     configured: Boolean,
+    busy: Boolean,
     actionLabel: String,
     onAction: () -> Unit
 ) {
@@ -955,7 +959,7 @@ private fun ProviderCard(
                 }
                 Button(
                     onClick = onAction,
-                    enabled = connected || configured || title == "YouTube",
+                    enabled = !busy && (connected || configured || title == "YouTube"),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = if (connected) Color(0xFF3A3D44) else HubAccent,
                         contentColor = if (connected) Color.White else HubBackground
