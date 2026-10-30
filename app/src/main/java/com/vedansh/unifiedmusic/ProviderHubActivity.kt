@@ -756,13 +756,17 @@ private fun ProviderHubScreen(
                     onAction = if (spotifyConnected) onDisconnectSpotify else onConnectSpotify
                 )
             }
-            item {
-                SpotifySetupCard(
-                    clientId = spotifyClientId,
-                    onClientIdChange = onSpotifyClientIdChange,
-                    onSave = onSaveSpotifyClientId,
-                    configured = spotifyConfigured
-                )
+            // Developer-only fallback for local debug builds. End users should never
+            // be asked to create provider apps or paste API credentials into the player.
+            if (BuildConfig.DEBUG && !spotifyConfigured) {
+                item {
+                    SpotifySetupCard(
+                        clientId = spotifyClientId,
+                        onClientIdChange = onSpotifyClientIdChange,
+                        onSave = onSaveSpotifyClientId,
+                        configured = spotifyConfigured
+                    )
+                }
             }
             item {
                 Surface(color = HubPanel, shape = RoundedCornerShape(16.dp)) {
@@ -986,7 +990,7 @@ private fun ProviderCard(
             Text(subtitle, color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
             if (!configured && !connected) {
                 Text(
-                    if (title == "Spotify") "Needs Spotify Developer Client ID configuration." else "Enable YouTube Data API v3 in the Google Cloud project linked to your Android OAuth client.",
+                    if (title == "Spotify") "Spotify connection isn't available yet. Please try again later." else "YouTube connection isn't available yet. Please try again later.",
                     color = Color(0xFFFFD18B),
                     style = MaterialTheme.typography.labelSmall
                 )
