@@ -180,6 +180,7 @@ class ProviderHubActivity : ComponentActivity() {
             }
         }
         handleSpotifyRedirect(intent?.data)
+        restoreYouTubeConnectionSilently()
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -192,6 +193,50 @@ class ProviderHubActivity : ComponentActivity() {
         spotifyRemote?.let { SpotifyAppRemote.disconnect(it) }
         spotifyRemote = null
         super.onDestroy()
+    }
+
+    /**
+     * Restores an existing grant without launching consent UI on app startup.
+     * If Google needs the user to choose an account or consent again, leave the app
+     * disconnected until the user taps Connect Google.
+     */
+    private fun restoreYouTubeConnectionSilently() {
+        val request = AuthorizationRequest.builder()
+            .setRequestedScopes(listOf(Scope(YOUTUBE_READ_ONLY_SCOPE)))
+            .build()
+        Identity.getAuthorizationClient(this)
+            .authorize(request)
+            .addOnSuccessListener { authorization ->
+                val token = authorization.accessToken
+                if (!authorization.hasResolution() &&
+                    !token.isNullOrBlank() &&
+                    authorization.grantedScopes.contains(YOUTUBE_READ_ONLY_SCOPE)
+                ) {
+                    lifecycleScope.launch {
+                        runCatching {
+                            withContext(Dispatchers.IO) {
+                                YouTubeCatalog.getAuthenticatedChannel(token, BuildConfig.YOUTUBE_API_KEY)
+                            }
+                        }.onSuccess { channel ->
+                            youtubeConnected = true
+                            status = if (channel.isNullOrBlank()) {
+                                "YouTube authorization restored."
+                            } else {
+                                "Connected to YouTube as $channel."
+                            }
+                        }.onFailure { exception ->
+                            youtubeConnected = false
+                            status = exception.message ?: "Reconnect Google to restore YouTube access."
+                        }
+                    }
+                } else {
+                    youtubeConnected = false
+                }
+            }
+            .addOnFailureListener { exception ->
+                youtubeConnected = false
+                status = describeGoogleAuthorizationError(exception)
+            }
     }
 
     private fun connectYouTube() {
