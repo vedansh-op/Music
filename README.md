@@ -16,7 +16,9 @@ Unified Music is a native Android music app built with Kotlin, Jetpack Compose a
 - Spotify Development Mode currently requires the developer to have Spotify Premium and limits a client ID to up to five authorized users; Spotify's developer rules can change. See Spotify's current developer access update before configuring access.
 - This project is a personal/non-commercial integration. Spotify's platform terms prohibit using its platform to build a commercial streaming integration.
 
-## One-time setup
+## Maintainer setup (not for app users)
+
+This section is for the app publisher preparing builds. End users should never create provider developer projects, copy API keys, register signing fingerprints, or edit app configuration. Their setup should be limited to opening the app, choosing their Google or Spotify account, reviewing the provider's permission screen, and returning to Unified Music.
 
 ### Spotify
 
