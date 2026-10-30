@@ -15,7 +15,7 @@ data class Track(
 )
 
 enum class TrackSource(val label: String) {
-    LOCAL("On device"), AUDIUS("Audius"), YOUTUBE("YouTube"), SPOTIFY("Spotify"), DEMO("Demo")
+    LOCAL("On device"), YOUTUBE("YouTube"), SPOTIFY("Spotify"), DEMO("Demo")
 }
 
 enum class TrackAvailability {
