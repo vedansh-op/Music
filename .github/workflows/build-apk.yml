@@ -1,15 +1,15 @@
-
 name: Build Android APK
 
 on:
   push:
+    branches: [main, "feat/**"]
+  pull_request:
     branches: [main]
   workflow_dispatch:
 
 permissions:
   contents: read
 
-# Keep only the newest build for a branch active when commits are pushed rapidly.
 concurrency:
   group: build-apk-${{ github.ref }}
   cancel-in-progress: true
@@ -17,7 +17,6 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -30,12 +29,18 @@ jobs:
           distribution: temurin
           java-version: "17"
 
+      - name: Download official Spotify App Remote SDK
+        run: |
+          mkdir -p app/libs
+          curl -fL --retry 3 \
+            "https://github.com/spotify/android-sdk/releases/download/v0.8.0-appremote_v2.1.0-auth/spotify-app-remote-release-0.8.0.aar" \
+            -o app/libs/spotify-app-remote-release-0.8.0.aar
+
       - name: Run unit tests and build APK
         env:
-          AUDIUS_API_KEY: ${{ secrets.AUDIUS_API_KEY }}
+          SPOTIFY_CLIENT_ID: ${{ secrets.SPOTIFY_CLIENT_ID }}
+          YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
         run: |
-          echo "ANDROID_HOME=$ANDROID_HOME"
-          echo "ANDROID_SDK_ROOT=$ANDROID_SDK_ROOT"
           gradle :app:testDebugUnitTest :app:assembleDebug
 
       - name: Upload APK
