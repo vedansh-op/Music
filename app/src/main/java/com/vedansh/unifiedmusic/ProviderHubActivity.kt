@@ -222,7 +222,7 @@ class ProviderHubActivity : ComponentActivity() {
 
     private fun saveSpotifyClientId() {
         val value = spotifyClientId.trim()
-        if (value.length < 10 || value.any(Char::isWhitespace)) {
+        if (value.length < 10 || value.any { it.isWhitespace() }) {
             error = "Enter a valid Spotify Client ID from your Spotify Developer Dashboard."
             return
         }
