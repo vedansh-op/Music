@@ -21,7 +21,7 @@ Unified Music is a native Android music app built with Kotlin, Jetpack Compose a
 ### Spotify
 
 1. Create an app in [Spotify Developer Dashboard](https://developer.spotify.com/dashboard).
-2. Select Android for the integration and register package name `com.vedansh.unifiedmusic` with the SHA-1 fingerprint printed by the GitHub Actions step **Print debug signing certificate SHA-1** for the APK run you install.
+2. Select Android for the integration and register package name `com.vedansh.unifiedmusic` with the SHA-1 fingerprint printed by the GitHub Actions step **Print APK signing certificate SHA-1** for the APK run you install.
 3. Add this exact redirect URI: `unifiedmusic://spotify/callback`.
 4. Copy the app's **Client ID**. Open Unified Music, paste it into **Spotify App Setup**, and tap **Save Spotify setup**. The ID is stored on the device; no GitHub Actions secret is required. Do not enter or embed a Spotify Client Secret; this Android app uses PKCE.
 5. Install the official Spotify app on the test phone and sign in to the account you want to use.
@@ -31,7 +31,7 @@ Unified Music is a native Android music app built with Kotlin, Jetpack Compose a
 
 1. In [Google Cloud Console](https://console.cloud.google.com/), create or select a project and enable **YouTube Data API v3**.
 2. Configure the OAuth consent screen and add your Google account as a test user while the app is in testing.
-3. Register an Android OAuth client for package `com.vedansh.unifiedmusic` and the SHA-1 printed by the GitHub Actions step **Print debug signing certificate SHA-1** for the APK run you install.
+3. Register an Android OAuth client for package `com.vedansh.unifiedmusic` and the SHA-1 printed by the GitHub Actions step **Print APK signing certificate SHA-1** for the APK run you install.
 4. Enable YouTube Data API v3. An API key can be added as the GitHub Actions repository secret `YOUTUBE_API_KEY` as a fallback; the app also sends the Google OAuth access token after the user approves access.
 5. On first connect, tap **Connect Google** in the app and approve the YouTube read-only permission in Google's own authorization UI.
 
