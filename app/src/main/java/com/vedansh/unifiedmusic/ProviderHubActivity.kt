@@ -35,6 +35,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -61,6 +62,8 @@ import com.google.android.gms.common.api.Scope
 import com.spotify.android.appremote.api.ConnectionParams
 import com.spotify.android.appremote.api.Connector
 import com.spotify.android.appremote.api.SpotifyAppRemote
+import com.vedansh.unifiedmusic.providers.GuestSuggestion
+import com.vedansh.unifiedmusic.providers.GuestTasteRepository
 import com.vedansh.unifiedmusic.providers.SpotifyAuthRepository
 import com.vedansh.unifiedmusic.providers.StreamProvider
 import com.vedansh.unifiedmusic.providers.StreamTrack
@@ -77,6 +80,10 @@ private val HubAccent = Color(0xFFB7F36B)
 class ProviderHubActivity : ComponentActivity() {
     private val spotifyRepository by lazy { SpotifyAuthRepository(applicationContext) }
     private val providerStatus by lazy { getSharedPreferences("provider_status", MODE_PRIVATE) }
+    private val guestTaste by lazy { GuestTasteRepository(applicationContext) }
+    private var guestMode by mutableStateOf(false)
+    private var showWelcome by mutableStateOf(false)
+    private var guestSuggestions by mutableStateOf<List<GuestSuggestion>>(emptyList())
     private var spotifyRemote: SpotifyAppRemote? = null
     private var pendingYoutubeAction: ((String) -> Unit)? = null
     private var pendingYoutubeFailure: (() -> Unit)? = null
@@ -136,6 +143,9 @@ class ProviderHubActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         spotifyConnected = spotifyRepository.hasStoredSession()
+        guestMode = providerStatus.getBoolean(KEY_GUEST_MODE, false)
+        showWelcome = !providerStatus.getBoolean(KEY_WELCOME_COMPLETED, false) && !spotifyConnected
+        guestSuggestions = guestTaste.suggestions()
         // Do not trust a persisted boolean as proof of an active Google authorization.
         // The account is marked connected only after a live token passes an API check.
         youtubeConnected = false
@@ -152,6 +162,9 @@ class ProviderHubActivity : ComponentActivity() {
                 )
             ) {
                 ProviderHubScreen(
+                    guestMode = guestMode,
+                    showWelcome = showWelcome,
+                    guestSuggestions = guestSuggestions,
                     youtubeConnected = youtubeConnected,
                     spotifyConnected = spotifyConnected,
                     spotifyConfigured = spotifyClientId.isNotBlank(),
@@ -180,12 +193,14 @@ class ProviderHubActivity : ComponentActivity() {
                     onDisconnectSpotify = { disconnectSpotify() },
                     onSearch = { searchProviders() },
                     onTrackClick = { track -> playTrack(track) },
+                    onContinueAsGuest = { continueAsGuest() },
+                    onGuestSuggestionClick = { suggestion -> searchGuestSuggestion(suggestion) },
                     onOpenLocalLibrary = { startActivity(Intent(this, MainActivity::class.java)) }
                 )
             }
         }
         handleSpotifyRedirect(intent?.data)
-        restoreYouTubeConnectionSilently()
+        if (!guestMode) restoreYouTubeConnectionSilently()
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -224,6 +239,12 @@ class ProviderHubActivity : ComponentActivity() {
                             }
                         }.onSuccess { channel ->
                             youtubeConnected = true
+                            guestMode = false
+                            showWelcome = false
+                            providerStatus.edit()
+                                .putBoolean(KEY_GUEST_MODE, false)
+                                .putBoolean(KEY_WELCOME_COMPLETED, true)
+                                .apply()
                             status = if (channel.isNullOrBlank()) {
                                 "YouTube authorization restored."
                             } else {
@@ -247,6 +268,7 @@ class ProviderHubActivity : ComponentActivity() {
     }
 
     private fun connectYouTube() {
+        prepareAccountConnection()
         error = null
         busy = true
         status = "Choose the Google account you want to connect…"
@@ -257,6 +279,12 @@ class ProviderHubActivity : ComponentActivity() {
                         YouTubeCatalog.getAuthenticatedChannel(token, BuildConfig.YOUTUBE_API_KEY)
                     }
                     youtubeConnected = true
+                    guestMode = false
+                    showWelcome = false
+                    providerStatus.edit()
+                        .putBoolean(KEY_GUEST_MODE, false)
+                        .putBoolean(KEY_WELCOME_COMPLETED, true)
+                        .apply()
                     status = if (channel.isNullOrBlank()) {
                         "Google authorization works. YouTube account access was verified."
                     } else {
@@ -489,6 +517,7 @@ class ProviderHubActivity : ComponentActivity() {
     }
 
     private fun connectSpotify() {
+        prepareAccountConnection()
         val clientId = spotifyClientId.trim()
         if (clientId.isBlank()) {
             error = "Add your Spotify Client ID in the Spotify setup section first."
@@ -530,6 +559,12 @@ class ProviderHubActivity : ComponentActivity() {
             try {
                 spotifyRepository.exchangeCode(code, verifier, spotifyClientId.trim())
                 spotifyConnected = true
+                guestMode = false
+                showWelcome = false
+                providerStatus.edit()
+                    .putBoolean(KEY_GUEST_MODE, false)
+                    .putBoolean(KEY_WELCOME_COMPLETED, true)
+                    .apply()
                 status = "Spotify account authorized. Connecting to Spotify playback…"
                 error = null
                 connectSpotifyRemote()
@@ -582,50 +617,119 @@ class ProviderHubActivity : ComponentActivity() {
         status = "Spotify disconnected from Unified Music."
     }
 
+    private fun searchGuestSuggestion(suggestion: GuestSuggestion) {
+        query = suggestion.query
+        searchProviders()
+    }
+
+    private fun openGuestYouTubeSearch(searchTerm: String) {
+        val uri = Uri.parse("https://www.youtube.com/results")
+            .buildUpon()
+            .appendQueryParameter("search_query", searchTerm)
+            .build()
+        startActivity(Intent(Intent.ACTION_VIEW, uri))
+    }
+
+    private fun continueAsGuest() {
+        guestMode = true
+        showWelcome = false
+        providerStatus.edit()
+            .putBoolean(KEY_GUEST_MODE, true)
+            .putBoolean(KEY_WELCOME_COMPLETED, true)
+            .apply()
+        guestSuggestions = guestTaste.suggestions()
+        error = null
+        status = "You're in guest mode. No account or sign-in is required."
+    }
+
+    private fun prepareAccountConnection() {
+        guestMode = false
+        showWelcome = false
+        providerStatus.edit()
+            .putBoolean(KEY_GUEST_MODE, false)
+            .putBoolean(KEY_WELCOME_COMPLETED, true)
+            .apply()
+    }
+
     private fun searchProviders() {
         val cleanQuery = query.trim()
         if (cleanQuery.isBlank()) {
             error = "Enter a song or artist first."
             return
         }
+        guestTaste.recordSearch(cleanQuery)
+        guestSuggestions = guestTaste.suggestions()
         results = emptyList()
         youtubeNextPageToken = null
         youtubeSearchQuery = cleanQuery
         error = null
         busy = true
-        status = "Searching YouTube and Spotify…"
+        status = if (guestMode) "Searching public YouTube as a guest…" else "Searching available music catalogues…"
 
-        requestYouTubeAuthorization(forceAccountSelection = false) { token ->
+        // Public catalogue search does not need a Google account. The API key is a
+        // maintainer-side app setting, never something the guest has to enter.
+        if (BuildConfig.YOUTUBE_API_KEY.isNotBlank()) {
             lifecycleScope.launch {
                 try {
                     val page = withContext(Dispatchers.IO) {
-                        YouTubeCatalog.searchPage(cleanQuery, token, BuildConfig.YOUTUBE_API_KEY)
+                        YouTubeCatalog.searchPage(cleanQuery, "", BuildConfig.YOUTUBE_API_KEY)
                     }
                     youtubeNextPageToken = page.nextPageToken
                     results = (results + page.tracks).distinctBy { it.id }
+                    error = null
                 } catch (exception: Exception) {
-                    logYouTubeFailure("search", exception)
-                    error = listOfNotNull(error, "Couldn't search YouTube right now. Please try again.").joinToString("\n")
+                    logYouTubeFailure("public catalogue search", exception)
+                    error = "Couldn't load YouTube results right now. You can still browse YouTube without signing in."
                 } finally {
                     busy = false
-                    status = "Search results from connected providers."
+                    status = if (guestMode) "Guest search complete." else "Search complete."
+                }
+            }
+        } else if (guestMode) {
+            // No account is required for ordinary YouTube browsing. If this build
+            // has no public Data API key, hand the search to YouTube itself rather
+            // than showing a broken Google sign-in prompt.
+            busy = false
+            status = "Opening public YouTube search. No sign-in needed."
+            error = "In-app catalogue access isn't configured in this build, so YouTube is opening its own guest search."
+            openGuestYouTubeSearch(cleanQuery)
+        } else {
+            requestYouTubeAuthorization(
+                forceAccountSelection = false,
+                onFailure = { busy = false }
+            ) { token ->
+                lifecycleScope.launch {
+                    try {
+                        val page = withContext(Dispatchers.IO) {
+                            YouTubeCatalog.searchPage(cleanQuery, token, BuildConfig.YOUTUBE_API_KEY)
+                        }
+                        youtubeNextPageToken = page.nextPageToken
+                        results = (results + page.tracks).distinctBy { it.id }
+                    } catch (exception: Exception) {
+                        logYouTubeFailure("search", exception)
+                        error = "Couldn't search YouTube right now. Please try again."
+                    } finally {
+                        busy = false
+                        status = "YouTube search complete."
+                    }
                 }
             }
         }
 
-        lifecycleScope.launch {
-            try {
-                val token = spotifyRepository.freshAccessToken(spotifyClientId.trim())
-                if (token == null) {
-                    error = listOfNotNull(error, "Connect Spotify to search its catalogue.").joinToString("\n")
-                } else {
-                    val tracks = spotifyRepository.searchTracks(cleanQuery, token)
-                    results = (results + tracks).distinctBy { it.id }
+        // Search Spotify only when the user has already connected it. Guest mode
+        // never launches an unexpected account chooser.
+        if (spotifyConnected) {
+            lifecycleScope.launch {
+                try {
+                    val token = spotifyRepository.freshAccessToken(spotifyClientId.trim())
+                    if (token != null) {
+                        val tracks = spotifyRepository.searchTracks(cleanQuery, token)
+                        results = (results + tracks).distinctBy { it.id }
+                    }
+                } catch (exception: Exception) {
+                    Log.w(LOG_TAG, "Spotify search failed", exception)
+                    if (results.isEmpty()) error = "Spotify search is temporarily unavailable."
                 }
-            } catch (exception: Exception) {
-                error = listOfNotNull(error, exception.message).joinToString("\n")
-            } finally {
-                status = "Search results from connected providers."
             }
         }
     }
@@ -635,10 +739,8 @@ class ProviderHubActivity : ComponentActivity() {
         val searchTerm = youtubeSearchQuery.ifBlank { query.trim() }
         if (searchTerm.isBlank()) return
         youtubeLoadingMore = true
-        requestYouTubeAuthorization(
-            forceAccountSelection = false,
-            onFailure = { youtubeLoadingMore = false }
-        ) { accessToken ->
+
+        fun loadPage(accessToken: String) {
             lifecycleScope.launch {
                 try {
                     val page = withContext(Dispatchers.IO) {
@@ -661,9 +763,25 @@ class ProviderHubActivity : ComponentActivity() {
                 }
             }
         }
+
+        when {
+            BuildConfig.YOUTUBE_API_KEY.isNotBlank() -> loadPage("")
+            guestMode -> {
+                youtubeLoadingMore = false
+                openGuestYouTubeSearch(searchTerm)
+                status = "Continue browsing this search on YouTube."
+            }
+            else -> requestYouTubeAuthorization(
+                forceAccountSelection = false,
+                onFailure = { youtubeLoadingMore = false },
+                action = ::loadPage
+            )
+        }
     }
 
     private fun playTrack(track: StreamTrack) {
+        guestTaste.recordPlay(track)
+        guestSuggestions = guestTaste.suggestions()
         error = null
         when (track.provider) {
             StreamProvider.YOUTUBE -> startActivity(
@@ -686,12 +804,17 @@ class ProviderHubActivity : ComponentActivity() {
 
     companion object {
         private const val LOG_TAG = "UnifiedMusic"
+        private const val KEY_GUEST_MODE = "guest_mode"
+        private const val KEY_WELCOME_COMPLETED = "welcome_completed"
         private const val YOUTUBE_READ_ONLY_SCOPE = "https://www.googleapis.com/auth/youtube.readonly"
     }
 }
 
 @Composable
 private fun ProviderHubScreen(
+    guestMode: Boolean,
+    showWelcome: Boolean,
+    guestSuggestions: List<GuestSuggestion>,
     youtubeConnected: Boolean,
     spotifyConnected: Boolean,
     spotifyConfigured: Boolean,
@@ -720,8 +843,20 @@ private fun ProviderHubScreen(
     onDisconnectSpotify: () -> Unit,
     onSearch: () -> Unit,
     onTrackClick: (StreamTrack) -> Unit,
+    onContinueAsGuest: () -> Unit,
+    onGuestSuggestionClick: (GuestSuggestion) -> Unit,
     onOpenLocalLibrary: () -> Unit
 ) {
+    if (showWelcome) {
+        GuestWelcomeScreen(
+            spotifyConfigured = spotifyConfigured,
+            onContinueAsGuest = onContinueAsGuest,
+            onConnectGoogle = onConnectYouTube,
+            onConnectSpotify = onConnectSpotify
+        )
+        return
+    }
+
     Scaffold(containerColor = HubBackground) { padding ->
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(padding).padding(horizontal = 18.dp),
@@ -731,8 +866,27 @@ private fun ProviderHubScreen(
                 Spacer(Modifier.height(20.dp))
                 Text("UNIFIED MUSIC", color = HubAccent, style = MaterialTheme.typography.labelMedium)
                 Text("Your music, together.", color = Color.White, style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Black)
-                Text("Connect your own accounts. Search both catalogues from one place.", color = Color.LightGray)
+                Text(
+                    if (guestMode) "Listen without signing in. Connect accounts only when you need their personal libraries."
+                    else "Connect accounts when you want their personal libraries. Guest listening is always available.",
+                    color = Color.LightGray
+                )
                 Spacer(Modifier.height(6.dp))
+            }
+            if (guestMode) {
+                item { GuestModeBanner() }
+            } else if (!youtubeConnected && !spotifyConnected) {
+                item {
+                    GuestFallbackCard(onContinueAsGuest = onContinueAsGuest)
+                }
+            }
+            if (guestMode) {
+                item {
+                    GuestSuggestionsCard(
+                        suggestions = guestSuggestions,
+                        onSuggestionClick = onGuestSuggestionClick
+                    )
+                }
             }
             item {
                 ProviderCard(
@@ -778,17 +932,20 @@ private fun ProviderHubScreen(
                     }
                 }
             }
-            item {
-                YouTubeLibraryHeader(
-                    loading = youtubeLibraryBusy,
-                    status = youtubeLibraryStatus,
-                    onLoadPlaylists = onLoadYouTubePlaylists,
-                    onLoadLiked = onLoadYouTubeLikedVideos
-                )
+            if (!guestMode) {
+                item {
+                    YouTubeLibraryHeader(
+                        loading = youtubeLibraryBusy,
+                        status = youtubeLibraryStatus,
+                        onLoadPlaylists = onLoadYouTubePlaylists,
+                        onLoadLiked = onLoadYouTubeLikedVideos
+                    )
+                }
+                items(youtubePlaylists, key = { it.id }) { playlist ->
+                    YouTubePlaylistRow(playlist, onClick = { onYouTubePlaylistClick(playlist) })
+                }
             }
-            items(youtubePlaylists, key = { it.id }) { playlist ->
-                YouTubePlaylistRow(playlist, onClick = { onYouTubePlaylistClick(playlist) })
-            }
+            /* playlist rows are intentionally hidden in guest mode; private account libraries need sign-in. */
             item {
                 Text("SEARCH MUSIC", color = HubAccent, style = MaterialTheme.typography.labelLarge)
                 OutlinedTextField(
@@ -807,7 +964,7 @@ private fun ProviderHubScreen(
                 ) {
                     if (busy) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = HubBackground)
                     else Icon(Icons.Default.Link, contentDescription = null)
-                    Text("  Search YouTube + Spotify")
+                    Text(if (guestMode) "  Search YouTube as Guest" else "  Search YouTube + Spotify")
                 }
             }
             if (results.isEmpty() && !busy) {
@@ -815,7 +972,11 @@ private fun ProviderHubScreen(
                     Surface(color = HubPanel, shape = RoundedCornerShape(16.dp)) {
                         Column(Modifier.fillMaxWidth().padding(18.dp)) {
                             Text("No results yet", fontWeight = FontWeight.SemiBold)
-                            Text("Connect your accounts, search for a track, then play a result.", color = Color.LightGray)
+                            Text(
+                                if (guestMode) "Search public YouTube without an account, or choose one of your personalised suggestions above."
+                                else "Connect an account or continue as a guest, then search for a track.",
+                                color = Color.LightGray
+                            )
                         }
                     }
                 }
@@ -846,11 +1007,151 @@ private fun ProviderHubScreen(
                 }
                 Spacer(Modifier.height(20.dp))
                 Text(
-                    "YouTube uses its visible embedded player. Spotify playback is handled by the Spotify app. Provider audio is not extracted into the local Media3 player.",
+                    if (guestMode) "Guest recommendations are calculated on this device from your searches and plays. YouTube videos use YouTube's visible player."
+                    else "YouTube uses its visible embedded player. Spotify playback is handled by the Spotify app. Provider audio is not extracted into the local Media3 player.",
                     color = Color.Gray,
                     style = MaterialTheme.typography.bodySmall
                 )
                 Spacer(Modifier.height(24.dp))
+            }
+        }
+    }
+}
+
+@Composable
+private fun GuestWelcomeScreen(
+    spotifyConfigured: Boolean,
+    onContinueAsGuest: () -> Unit,
+    onConnectGoogle: () -> Unit,
+    onConnectSpotify: () -> Unit
+) {
+    Scaffold(containerColor = HubBackground) { padding ->
+        Column(
+            modifier = Modifier.fillMaxSize().padding(padding).padding(24.dp),
+            verticalArrangement = Arrangement.Center,
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text("UNIFIED MUSIC", color = HubAccent, style = MaterialTheme.typography.labelLarge)
+            Spacer(Modifier.height(14.dp))
+            Text(
+                "Your music. Your choice.",
+                color = Color.White,
+                style = MaterialTheme.typography.headlineLarge,
+                fontWeight = FontWeight.Black
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "Start listening right away. You don't need a Google or Spotify account to enter guest mode.",
+                color = Color.LightGray,
+                style = MaterialTheme.typography.bodyLarge
+            )
+            Spacer(Modifier.height(24.dp))
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = HubPanel),
+                shape = RoundedCornerShape(22.dp)
+            ) {
+                Column(
+                    modifier = Modifier.fillMaxWidth().padding(20.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text("CONTINUE AS GUEST", color = HubAccent, style = MaterialTheme.typography.labelLarge)
+                    Text(
+                        "No sign-up. No account chooser. Your recommendations learn from your searches and plays and stay on this device.",
+                        color = Color.White,
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                    Button(
+                        onClick = onContinueAsGuest,
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = HubAccent, contentColor = HubBackground)
+                    ) {
+                        Text("Continue as Guest", fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+            Spacer(Modifier.height(20.dp))
+            Text("OR CONNECT AN ACCOUNT", color = Color.LightGray, style = MaterialTheme.typography.labelMedium)
+            Spacer(Modifier.height(8.dp))
+            OutlinedButton(onClick = onConnectGoogle, modifier = Modifier.fillMaxWidth()) {
+                Text("Connect Google / YouTube", color = Color.White)
+            }
+            OutlinedButton(
+                onClick = onConnectSpotify,
+                enabled = spotifyConfigured,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(if (spotifyConfigured) "Connect Spotify" else "Spotify can be connected later", color = Color.White)
+            }
+            Spacer(Modifier.height(10.dp))
+            Text(
+                "You can connect or disconnect providers later. Guest mode is not a limited trial.",
+                color = Color.Gray,
+                style = MaterialTheme.typography.bodySmall
+            )
+        }
+    }
+}
+
+@Composable
+private fun GuestModeBanner() {
+    Surface(color = HubPanel, shape = RoundedCornerShape(18.dp)) {
+        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+            Text("GUEST MODE", color = HubAccent, style = MaterialTheme.typography.labelLarge)
+            Text("You're listening without an account. Your taste profile is saved locally on this phone.", color = Color.White)
+            Text("Sign in is optional. Public YouTube search can work without connecting Google.", color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
+        }
+    }
+}
+
+@Composable
+private fun GuestFallbackCard(onContinueAsGuest: () -> Unit) {
+    Card(colors = CardDefaults.cardColors(containerColor = HubPanel), shape = RoundedCornerShape(18.dp)) {
+        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("SIGN-IN NOT WORKING?", color = HubAccent, style = MaterialTheme.typography.labelLarge)
+            Text("Don't get stuck at the login screen. You can still enter as a guest and connect accounts later.", color = Color.LightGray)
+            Button(
+                onClick = onContinueAsGuest,
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(containerColor = HubAccent, contentColor = HubBackground)
+            ) {
+                Text("Continue as Guest")
+            }
+        }
+    }
+}
+
+@Composable
+private fun GuestSuggestionsCard(
+    suggestions: List<GuestSuggestion>,
+    onSuggestionClick: (GuestSuggestion) -> Unit
+) {
+    Card(colors = CardDefaults.cardColors(containerColor = HubPanel), shape = RoundedCornerShape(18.dp)) {
+        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+            Text("YOUR PERSONAL MIX", color = HubAccent, style = MaterialTheme.typography.labelLarge)
+            Text(
+                "These suggestions adapt to what you search and play. The listening profile stays on this device.",
+                color = Color.LightGray,
+                style = MaterialTheme.typography.bodySmall
+            )
+            suggestions.forEach { suggestion ->
+                Surface(
+                    color = Color(0xFF292C32),
+                    shape = RoundedCornerShape(13.dp),
+                    modifier = Modifier.fillMaxWidth().clickable { onSuggestionClick(suggestion) }
+                ) {
+                    Row(
+                        Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Default.MusicNote, contentDescription = null, tint = HubAccent)
+                        Column(Modifier.weight(1f).padding(start = 10.dp)) {
+                            Text(suggestion.title, color = Color.White, fontWeight = FontWeight.SemiBold)
+                            Text(suggestion.reason, color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
+                        }
+                        Icon(Icons.Default.PlayArrow, contentDescription = "Search suggestion", tint = HubAccent)
+                    }
+                }
             }
         }
     }
