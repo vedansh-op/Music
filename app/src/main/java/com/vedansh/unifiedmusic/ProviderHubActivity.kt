@@ -639,16 +639,6 @@ private fun ProviderHubScreen(
                 )
             }
             item {
-                YouTubeLibraryHeader(
-                    loading = youtubeLibraryBusy,
-                    status = youtubeLibraryStatus,
-                    onLoad = onLoadYouTubePlaylists
-                )
-            }
-            items(youtubePlaylists, key = { it.id }) { playlist ->
-                YouTubePlaylistRow(playlist, onClick = { onYouTubePlaylistClick(playlist) })
-            }
-            item {
                 ProviderCard(
                     title = "Spotify",
                     subtitle = "Spotify account · Search and play through the Spotify app",
@@ -665,6 +655,26 @@ private fun ProviderHubScreen(
                     onSave = onSaveSpotifyClientId,
                     configured = spotifyConfigured
                 )
+            }
+            item {
+                Surface(color = HubPanel, shape = RoundedCornerShape(16.dp)) {
+                    Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(status, color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
+                        if (!error.isNullOrBlank()) {
+                            Text(error, color = Color(0xFFFFB4AB), style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                }
+            }
+            item {
+                YouTubeLibraryHeader(
+                    loading = youtubeLibraryBusy,
+                    status = youtubeLibraryStatus,
+                    onLoad = onLoadYouTubePlaylists
+                )
+            }
+            items(youtubePlaylists, key = { it.id }) { playlist ->
+                YouTubePlaylistRow(playlist, onClick = { onYouTubePlaylistClick(playlist) })
             }
             item {
                 Text("SEARCH MUSIC", color = HubAccent, style = MaterialTheme.typography.labelLarge)
@@ -684,10 +694,6 @@ private fun ProviderHubScreen(
                     if (busy) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = HubBackground)
                     else Icon(Icons.Default.Link, contentDescription = null)
                     Text("  Search YouTube + Spotify")
-                }
-                Text(status, color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
-                if (!error.isNullOrBlank()) {
-                    Text(error, color = Color(0xFFFFB4AB), style = MaterialTheme.typography.bodySmall)
                 }
             }
             if (results.isEmpty() && !busy) {
