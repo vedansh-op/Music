@@ -29,21 +29,50 @@ jobs:
           distribution: temurin
           java-version: "17"
 
+      - name: Validate optional stable signing configuration
+        shell: bash
+        env:
+          ANDROID_SIGNING_KEYSTORE_BASE64: ${{ secrets.ANDROID_SIGNING_KEYSTORE_BASE64 }}
+          ANDROID_SIGNING_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_SIGNING_KEYSTORE_PASSWORD }}
+          ANDROID_SIGNING_KEY_ALIAS: ${{ secrets.ANDROID_SIGNING_KEY_ALIAS }}
+          ANDROID_SIGNING_KEY_PASSWORD: ${{ secrets.ANDROID_SIGNING_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          names=(ANDROID_SIGNING_KEYSTORE_BASE64 ANDROID_SIGNING_KEYSTORE_PASSWORD ANDROID_SIGNING_KEY_ALIAS ANDROID_SIGNING_KEY_PASSWORD)
+          configured=0
+          for name in "${names[@]}"; do
+            if [[ -n "${!name:-}" ]]; then
+              configured=$((configured + 1))
+            fi
+          done
+          if [[ "$configured" -eq 0 ]]; then
+            echo "::notice::Stable Android signing is not configured. This run will use the runner's temporary debug key, so the Google OAuth SHA-1 will change on the next clean runner."
+          elif [[ "$configured" -ne "${#names[@]}" ]]; then
+            echo "::error::Stable signing is partially configured. Add all four ANDROID_SIGNING_* repository secrets."
+            exit 1
+          else
+            echo "Stable Android signing secrets are configured."
+          fi
+
       - name: Download official Spotify App Remote SDK
         run: |
           mkdir -p app/libs
-          curl -fL --retry 3 \
-            "https://github.com/spotify/android-sdk/releases/download/v0.8.0-appremote_v2.1.0-auth/spotify-app-remote-release-0.8.0.aar" \
+          curl -fL --retry 3 \\
+            "https://github.com/spotify/android-sdk/releases/download/v0.8.0-appremote_v2.1.0-auth/spotify-app-remote-release-0.8.0.aar" \\
             -o app/libs/spotify-app-remote-release-0.8.0.aar
 
       - name: Run unit tests and build APK
         env:
           SPOTIFY_CLIENT_ID: ${{ secrets.SPOTIFY_CLIENT_ID }}
           YOUTUBE_API_KEY: ${{ secrets.YOUTUBE_API_KEY }}
+          ANDROID_SIGNING_KEYSTORE_BASE64: ${{ secrets.ANDROID_SIGNING_KEYSTORE_BASE64 }}
+          ANDROID_SIGNING_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_SIGNING_KEYSTORE_PASSWORD }}
+          ANDROID_SIGNING_KEY_ALIAS: ${{ secrets.ANDROID_SIGNING_KEY_ALIAS }}
+          ANDROID_SIGNING_KEY_PASSWORD: ${{ secrets.ANDROID_SIGNING_KEY_PASSWORD }}
         run: |
           gradle :app:testDebugUnitTest :app:assembleDebug
 
-      - name: Print APK signing certificate SHA-1
+      - name: Print APK signing certificate fingerprints
         shell: bash
         run: |
           set -euo pipefail
