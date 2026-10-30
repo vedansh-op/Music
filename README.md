@@ -14,7 +14,7 @@ Unified Music is a native Android music app built with Kotlin, Jetpack Compose a
 - First launch offers **Continue as Guest** before asking users to connect providers. Guest mode does not require Google or Spotify sign-in and can be used indefinitely.
 - Public YouTube catalogue search uses the app publisher's configured YouTube Data API key without an account token. If this build has no catalogue key, the app opens YouTube's own public search page instead of forcing a Google login.
 - Google sign-in remains optional and is only needed for account-specific features such as the user's private playlists and liked videos. Spotify search/playback remains optional and is used only after Spotify has been connected.
-- Guest recommendations are generated locally from recent search and playback signals, with recency decay and stronger weighting for repeated listening. New guests start with starter categories (Hindi, Punjabi, lo-fi, workout, gaming and focus). The guest listening profile is stored in app-private preferences on the device and is not uploaded to an account or recommendation server.
+- Guest recommendations are generated locally from recent searches, online plays, local-library plays and liked local tracks, with recency decay and stronger weighting for repeated listening and likes. New guests start with starter categories (Hindi, Punjabi, lo-fi, workout, gaming and focus). The guest listening profile is stored in app-private preferences on the device and is not uploaded to an account or recommendation server.
 
 ## Provider playback boundaries
 
