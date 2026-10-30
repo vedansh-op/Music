@@ -78,6 +78,42 @@ object YouTubeCatalog {
             }
         }
 
+    /** Reads videos liked by the signed-in user using the official videos.list myRating filter. */
+    suspend fun getLikedVideos(accessToken: String, apiKey: String): List<StreamTrack> =
+        withContext(Dispatchers.IO) {
+            require(accessToken.isNotBlank()) { "Connect Google before loading your liked videos." }
+            val root = getJson(
+                url = withApiKey(
+                    "https://www.googleapis.com/youtube/v3/videos?part=snippet&myRating=like&maxResults=50",
+                    apiKey
+                ),
+                accessToken = accessToken
+            )
+            val items = root.optJSONArray("items") ?: return@withContext emptyList()
+            buildList {
+                for (index in 0 until items.length()) {
+                    val item = items.optJSONObject(index) ?: continue
+                    val videoId = item.optString("id")
+                    val snippet = item.optJSONObject("snippet") ?: continue
+                    if (videoId.isBlank()) continue
+                    val thumbnails = snippet.optJSONObject("thumbnails")
+                    val image = thumbnails?.optJSONObject("high")?.optString("url")
+                        ?: thumbnails?.optJSONObject("medium")?.optString("url")
+                    add(
+                        StreamTrack(
+                            id = "youtube:$videoId",
+                            title = snippet.optString("title", "Unknown video"),
+                            artist = snippet.optString("channelTitle", "YouTube"),
+                            artworkUrl = image?.takeIf { it.isNotBlank() },
+                            provider = StreamProvider.YOUTUBE,
+                            playbackId = videoId,
+                            webUrl = "https://www.youtube.com/watch?v=$videoId"
+                        )
+                    )
+                }
+            }
+        }
+
     /** Reads the selected playlist's videos; pagination can be added without changing this model. */
     suspend fun getPlaylistTracks(
         playlistId: String,
