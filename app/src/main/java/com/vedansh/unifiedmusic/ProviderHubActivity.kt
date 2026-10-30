@@ -431,6 +431,8 @@ class ProviderHubActivity : ComponentActivity() {
     }
 
     private fun openYouTubePlaylist(playlist: YouTubePlaylist) {
+        youtubeNextPageToken = null
+        youtubeSearchQuery = ""
         youtubeLibraryBusy = true
         youtubeLibraryStatus = "Loading ${playlist.title}…"
         requestYouTubeAuthorization(
