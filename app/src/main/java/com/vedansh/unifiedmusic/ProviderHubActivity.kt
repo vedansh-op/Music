@@ -78,6 +78,7 @@ class ProviderHubActivity : ComponentActivity() {
     private val providerStatus by lazy { getSharedPreferences("provider_status", MODE_PRIVATE) }
     private var spotifyRemote: SpotifyAppRemote? = null
     private var pendingYoutubeAction: ((String) -> Unit)? = null
+    private var pendingYoutubeFailure: (() -> Unit)? = null
     private var pendingSpotifyTrack: String? = null
 
     private var youtubeConnected by mutableStateOf(false)
@@ -99,14 +100,12 @@ class ProviderHubActivity : ComponentActivity() {
         registerForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
             val returnedIntent = result.data
             if (returnedIntent == null) {
-                youtubeConnected = false
-                error = if (result.resultCode == Activity.RESULT_CANCELED) {
+                val message = if (result.resultCode == Activity.RESULT_CANCELED) {
                     "Google sign-in was closed before it returned an authorization result. Check the OAuth test-user and consent-screen settings if this happened immediately after choosing an account."
                 } else {
                     "Google sign-in returned no result (activity result code ${result.resultCode}). Try again and check the Google Cloud OAuth configuration."
                 }
-                busy = false
-                pendingYoutubeAction = null
+                failPendingYouTubeAuthorization(message)
             } else {
                 runCatching {
                     Identity.getAuthorizationClient(this).getAuthorizationResultFromIntent(returnedIntent)
@@ -114,23 +113,21 @@ class ProviderHubActivity : ComponentActivity() {
                     val token = authorization.accessToken
                     val granted = authorization.grantedScopes
                     if (token.isNullOrBlank()) {
-                        youtubeConnected = false
-                        error = "Google completed the account screen but returned no YouTube access token. Granted scopes: ${granted.joinToString().ifBlank { "none" }}."
-                        busy = false
+                        failPendingYouTubeAuthorization(
+                            "Google completed the account screen but returned no YouTube access token. Granted scopes: ${granted.joinToString().ifBlank { "none" }}."
+                        )
                     } else if (!granted.contains(YOUTUBE_READ_ONLY_SCOPE)) {
-                        youtubeConnected = false
-                        error = "Google did not grant the YouTube read-only permission. Granted scopes: ${granted.joinToString().ifBlank { "none" }}. Reconnect and approve the requested YouTube permission."
-                        busy = false
+                        failPendingYouTubeAuthorization(
+                            "Google did not grant the YouTube read-only permission. Granted scopes: ${granted.joinToString().ifBlank { "none" }}. Reconnect and approve the requested YouTube permission."
+                        )
                     } else {
                         val action = pendingYoutubeAction
                         pendingYoutubeAction = null
+                        pendingYoutubeFailure = null
                         action?.invoke(token)
                     }
                 }.onFailure { throwable ->
-                    youtubeConnected = false
-                    error = describeGoogleAuthorizationError(throwable)
-                    busy = false
-                    pendingYoutubeAction = null
+                    failPendingYouTubeAuthorization(describeGoogleAuthorizationError(throwable))
                 }
             }
         }
@@ -276,9 +273,11 @@ class ProviderHubActivity : ComponentActivity() {
 
     private fun requestYouTubeAuthorization(
         forceAccountSelection: Boolean = false,
+        onFailure: (() -> Unit)? = null,
         action: (String) -> Unit
     ) {
         pendingYoutubeAction = action
+        pendingYoutubeFailure = onFailure
         status = if (forceAccountSelection) {
             "Opening Google account chooser…"
         } else {
@@ -295,43 +294,46 @@ class ProviderHubActivity : ComponentActivity() {
                 if (result.hasResolution()) {
                     val pendingIntent = result.pendingIntent
                     if (pendingIntent == null) {
-                        youtubeConnected = false
-                        error = "Google Play services requested an authorization screen but did not provide one. Update Google Play services and try again."
-                        pendingYoutubeAction = null
-                        busy = false
+                        failPendingYouTubeAuthorization(
+                            "Google Play services requested an authorization screen but did not provide one. Update Google Play services and try again."
+                        )
                     } else {
                         runCatching {
                             googleAuthorizationLauncher.launch(
                                 IntentSenderRequest.Builder(pendingIntent.intentSender).build()
                             )
                         }.onFailure { throwable ->
-                            youtubeConnected = false
-                            error = describeGoogleAuthorizationError(throwable)
-                            pendingYoutubeAction = null
-                            busy = false
+                            failPendingYouTubeAuthorization(describeGoogleAuthorizationError(throwable))
                         }
                     }
                 } else {
                     val token = result.accessToken
                     val granted = result.grantedScopes
                     if (token.isNullOrBlank() || !granted.contains(YOUTUBE_READ_ONLY_SCOPE)) {
-                        youtubeConnected = false
-                        error = "Google did not return a usable YouTube token. Granted scopes: ${granted.joinToString().ifBlank { "none" }}."
-                        pendingYoutubeAction = null
-                        busy = false
+                        failPendingYouTubeAuthorization(
+                            "Google did not return a usable YouTube token. Granted scopes: ${granted.joinToString().ifBlank { "none" }}."
+                        )
                     } else {
                         val pendingAction = pendingYoutubeAction
                         pendingYoutubeAction = null
+                        pendingYoutubeFailure = null
                         pendingAction?.invoke(token)
                     }
                 }
             }
             .addOnFailureListener { exception ->
-                youtubeConnected = false
-                error = describeGoogleAuthorizationError(exception)
-                pendingYoutubeAction = null
-                busy = false
+                failPendingYouTubeAuthorization(describeGoogleAuthorizationError(exception))
             }
+    }
+
+    private fun failPendingYouTubeAuthorization(message: String) {
+        youtubeConnected = false
+        error = message
+        busy = false
+        pendingYoutubeAction = null
+        val failure = pendingYoutubeFailure
+        pendingYoutubeFailure = null
+        failure?.invoke()
     }
 
     private fun describeGoogleAuthorizationError(throwable: Throwable): String {
@@ -373,7 +375,13 @@ class ProviderHubActivity : ComponentActivity() {
     private fun loadYouTubePlaylists() {
         youtubeLibraryBusy = true
         youtubeLibraryStatus = "Authorizing Google and loading your playlists…"
-        requestYouTubeAuthorization(forceAccountSelection = false) { token ->
+        requestYouTubeAuthorization(
+            forceAccountSelection = false,
+            onFailure = {
+                youtubeLibraryBusy = false
+                youtubeLibraryStatus = error ?: "Google authorization failed. Try loading playlists again."
+            }
+        ) { token ->
             lifecycleScope.launch {
                 try {
                     val playlists = withContext(Dispatchers.IO) {
@@ -397,7 +405,13 @@ class ProviderHubActivity : ComponentActivity() {
     private fun loadYouTubeLikedVideos() {
         youtubeLibraryBusy = true
         youtubeLibraryStatus = "Loading videos liked by your Google account…"
-        requestYouTubeAuthorization(forceAccountSelection = false) { token ->
+        requestYouTubeAuthorization(
+            forceAccountSelection = false,
+            onFailure = {
+                youtubeLibraryBusy = false
+                youtubeLibraryStatus = error ?: "Google authorization failed. Try loading liked videos again."
+            }
+        ) { token ->
             lifecycleScope.launch {
                 try {
                     val tracks = withContext(Dispatchers.IO) {
@@ -419,7 +433,13 @@ class ProviderHubActivity : ComponentActivity() {
     private fun openYouTubePlaylist(playlist: YouTubePlaylist) {
         youtubeLibraryBusy = true
         youtubeLibraryStatus = "Loading ${playlist.title}…"
-        requestYouTubeAuthorization(forceAccountSelection = false) { token ->
+        requestYouTubeAuthorization(
+            forceAccountSelection = false,
+            onFailure = {
+                youtubeLibraryBusy = false
+                youtubeLibraryStatus = error ?: "Google authorization failed. Try opening the playlist again."
+            }
+        ) { token ->
             lifecycleScope.launch {
                 try {
                     val tracks = withContext(Dispatchers.IO) {
@@ -599,7 +619,10 @@ class ProviderHubActivity : ComponentActivity() {
         val searchTerm = youtubeSearchQuery.ifBlank { query.trim() }
         if (searchTerm.isBlank()) return
         youtubeLoadingMore = true
-        requestYouTubeAuthorization(forceAccountSelection = false) { accessToken ->
+        requestYouTubeAuthorization(
+            forceAccountSelection = false,
+            onFailure = { youtubeLoadingMore = false }
+        ) { accessToken ->
             lifecycleScope.launch {
                 try {
                     val page = withContext(Dispatchers.IO) {
