@@ -18,6 +18,31 @@ val youtubeApiKey = providers.environmentVariable("YOUTUBE_API_KEY")
     .orElse("")
     .get()
 
+// GitHub-hosted runners are clean machines. The default Android debug keystore is
+// regenerated on every run, which changes the OAuth SHA-1 and can break Google login.
+// Supplying all four secrets below gives CI one stable signing identity.
+val ciSigningStoreBase64 = providers.environmentVariable("ANDROID_SIGNING_KEYSTORE_BASE64").orElse("").get()
+val ciSigningStorePassword = providers.environmentVariable("ANDROID_SIGNING_KEYSTORE_PASSWORD").orElse("").get()
+val ciSigningKeyAlias = providers.environmentVariable("ANDROID_SIGNING_KEY_ALIAS").orElse("").get()
+val ciSigningKeyPassword = providers.environmentVariable("ANDROID_SIGNING_KEY_PASSWORD").orElse("").get()
+val ciSigningValues = listOf(
+    ciSigningStoreBase64,
+    ciSigningStorePassword,
+    ciSigningKeyAlias,
+    ciSigningKeyPassword
+)
+val ciSigningEnabled = ciSigningValues.any { it.isNotBlank() }
+
+if (ciSigningEnabled && ciSigningValues.any { it.isBlank() }) {
+    error("Stable CI signing is partially configured. Set all four ANDROID_SIGNING_* GitHub Actions secrets or remove them all.")
+}
+
+val ciSigningStoreFile = layout.buildDirectory.file("ci-signing/unifiedmusic.jks").get().asFile
+if (ciSigningEnabled) {
+    ciSigningStoreFile.parentFile.mkdirs()
+    ciSigningStoreFile.writeBytes(java.util.Base64.getMimeDecoder().decode(ciSigningStoreBase64))
+}
+
 android {
     namespace = "com.vedansh.unifiedmusic"
     compileSdk = 35
@@ -30,6 +55,25 @@ android {
         versionName = "0.5.0"
         buildConfigField("String", "SPOTIFY_CLIENT_ID", buildConfigLiteral(spotifyClientId))
         buildConfigField("String", "YOUTUBE_API_KEY", buildConfigLiteral(youtubeApiKey))
+    }
+
+    signingConfigs {
+        if (ciSigningEnabled) {
+            create("ciDebug") {
+                storeFile = ciSigningStoreFile
+                storePassword = ciSigningStorePassword
+                keyAlias = ciSigningKeyAlias
+                keyPassword = ciSigningKeyPassword
+            }
+        }
+    }
+
+    buildTypes {
+        getByName("debug") {
+            if (ciSigningEnabled) {
+                signingConfig = signingConfigs.getByName("ciDebug")
+            }
+        }
     }
 
     buildFeatures {
