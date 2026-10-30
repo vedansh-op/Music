@@ -102,9 +102,11 @@ class ProviderHubActivity : ComponentActivity() {
                     }
                 }.onFailure {
                     error = "YouTube authorization was not completed: ${it.message.orEmpty()}"
+                    busy = false
                 }
             } else {
                 error = "YouTube authorization was cancelled."
+                busy = false
             }
             pendingYoutubeAction = null
         }
@@ -174,6 +176,7 @@ class ProviderHubActivity : ComponentActivity() {
                     if (pendingIntent == null) {
                         error = "Google did not provide an authorization screen."
                         pendingYoutubeAction = null
+                        busy = false
                     } else {
                         googleAuthorizationLauncher.launch(
                             IntentSenderRequest.Builder(pendingIntent.intentSender).build()
@@ -185,6 +188,7 @@ class ProviderHubActivity : ComponentActivity() {
                         error = "Google returned an empty YouTube access token."
                     } else {
                         youtubeConnected = true
+                        providerStatus.edit().putBoolean("youtube_connected", true).apply()
                         status = "YouTube account connected."
                         action?.invoke(token)
                     }
