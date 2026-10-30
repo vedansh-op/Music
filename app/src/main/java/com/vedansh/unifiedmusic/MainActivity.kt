@@ -313,10 +313,10 @@ private fun UnifiedMusicApp() {
             onlineSearchError = null
             isSearchingOnline = false
         } else {
-            delay(350L)
             onlineTracks = emptyList()
             isSearchingOnline = true
             onlineSearchError = null
+            delay(350L)
             try {
                 onlineTracks = catalog.search(query)
             } catch (cancelled: CancellationException) {
