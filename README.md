@@ -1,31 +1,31 @@
 # Unified Music — Android music player
 
-Unified Music is a native Android music app built with Kotlin, Jetpack Compose and AndroidX Media3. The account hub integrates **YouTube and Spotify**.
+Unified Music is a native Android music app built with Kotlin, Jetpack Compose and AndroidX Media3. Its primary online experience is **YouTube Music guest search and in-app playback**. Google sign-in is optional for personal YouTube Music library features; Spotify remains a separate optional provider.
 
 ## Current app structure
 
 - The account hub is the launcher screen.
-- YouTube: Google account authorization with an explicit account chooser, live token validation against the signed-in channel, YouTube Data API music search with pagination, signed-in playlist browsing, liked-video library access, and a visible YouTube player for playback. OAuth failures surface their Google status code and the likely configuration fix instead of silently leaving a stale "connected" flag.
+- YouTube Music: anonymous public music search and pagination without Google sign-in, in-app audio playback through Media3, optional Google authorization for personal playlists and liked songs. Google authorization errors are only shown when the user explicitly chooses to connect an account.
 - Spotify: Spotify Authorization Code with PKCE, encrypted token storage, Spotify Web API track search, and Spotify App Remote playback through the official Spotify app.
 - The existing local music library, local playlists and Media3 player are still in the project and can be opened from the hub.
 
 ## Guest mode and recommendations
 
 - First launch offers **Continue as Guest** before asking users to connect providers. Guest mode does not require Google or Spotify sign-in and can be used indefinitely.
-- Public YouTube catalogue search uses the app publisher's configured YouTube Data API key without an account token. If this build has no catalogue key, the app opens YouTube's own public search page instead of forcing a Google login.
+- Guest search calls the public YouTube Music music-search endpoint and displays YouTube Music song results inside Unified Music. Tapping a result plays it through the app's Media3 player; no Google account, OAuth token or YouTube Data API key is required for the guest path.
 - Google sign-in remains optional and is only needed for account-specific features such as the user's private playlists and liked videos. Spotify search/playback remains optional and is used only after Spotify has been connected.
 - Guest recommendations are generated locally from recent searches, online plays, local-library plays and liked local tracks, with recency decay and stronger weighting for repeated listening and likes. New guests start with starter categories (Hindi, Punjabi, lo-fi, workout, gaming and focus). The guest listening profile is stored in app-private preferences on the device and is not uploaded to an account or recommendation server.
 
 ## Provider playback boundaries
 
-- YouTube playback remains inside the standard visible YouTube player with its normal controls and ads. The app does not extract audio, hide the player, or provide background playback for YouTube videos.
+- YouTube Music guest playback resolves a playable audio stream and plays it through the app's Media3 media session. This path uses NewPipe Extractor as a stream-resolution component; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) and [LICENSE](LICENSE). Google sign-in is not part of public guest search or playback.
 - Spotify playback is controlled through Spotify App Remote and is performed by the Spotify app. It is not a direct Spotify audio stream inside Media3. Spotify's Android App Remote SDK requires the Spotify app to be installed and the app to be registered in Spotify Developer Dashboard.
 - Spotify Development Mode currently requires the developer to have Spotify Premium and limits a client ID to up to five authorized users; Spotify's developer rules can change. See Spotify's current developer access update before configuring access.
 - This project is a personal/non-commercial integration. Spotify's platform terms prohibit using its platform to build a commercial streaming integration.
 
 ## Maintainer setup (not for app users)
 
-This section is for the app publisher preparing builds. End users should never create provider developer projects, copy API keys, register signing fingerprints, or edit app configuration. Their setup should be limited to opening the app, choosing their Google or Spotify account, reviewing the provider's permission screen, and returning to Unified Music.
+This section is for the app publisher preparing builds. End users should never create provider developer projects, copy API keys, register signing fingerprints, or edit app configuration. They can open Unified Music and choose **Continue as Guest** immediately. Google and Spotify sign-ins are optional account connections.
 
 ### Spotify
 
@@ -59,7 +59,7 @@ Until all four signing secrets are configured, CI intentionally falls back to a 
 
 ## Build
 
-GitHub Actions downloads the official Spotify App Remote AAR, runs JVM unit tests, builds the debug APK, and uploads it as the `UnifiedMusic-debug-apk` artifact. The build works without provider secrets. Spotify's Client ID is entered once in the app's Spotify setup section. YouTube needs an Android OAuth client and YouTube Data API v3 enabled in the linked Google Cloud project. The YouTube API key is optional when Google OAuth is configured.
+GitHub Actions downloads the official Spotify App Remote AAR and NewPipe Extractor dependency, runs JVM unit tests, builds the debug APK, and uploads it as the `UnifiedMusic-debug-apk` artifact. The YouTube Music guest catalogue and playback do not need provider secrets. Google OAuth plus YouTube Data API v3 are needed only for the optional personal YouTube library features. Spotify's Client ID is configured separately for optional Spotify use.
 
 For local builds, first run:
 
@@ -77,7 +77,7 @@ Provide local credentials as Gradle properties or environment variables:
 
 - Users authenticate with Google and Spotify directly through the providers' own consent screens. The app never asks for provider passwords.
 - Spotify access and refresh tokens are stored in Android encrypted shared preferences.
-- Google access tokens are held in memory and obtained through Google Identity when required. The app no longer persists a bare "YouTube connected" boolean as proof of authorization; it verifies access with the YouTube Data API before showing the account as connected.
+- Guest YouTube Music search requires no Google account. Google access tokens are held in memory and obtained through Google Identity only when the user explicitly connects an account for personal library features. The guest recommendation profile remains in app-private preferences on the device.
 - Never commit API keys, OAuth secrets, refresh tokens or user credentials to the repository.
 
 ## Existing local player
