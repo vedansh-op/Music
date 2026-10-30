@@ -125,7 +125,7 @@ class ProviderHubActivity : ComponentActivity() {
                     youtubeConnected = youtubeConnected,
                     spotifyConnected = spotifyConnected,
                     spotifyConfigured = BuildConfig.SPOTIFY_CLIENT_ID.isNotBlank(),
-                    youtubeConfigured = BuildConfig.YOUTUBE_API_KEY.isNotBlank(),
+                    youtubeConfigured = true,
                     busy = busy,
                     query = query,
                     results = results,
@@ -158,9 +158,6 @@ class ProviderHubActivity : ComponentActivity() {
     }
 
     private fun requestYouTubeAuthorization(action: ((String) -> Unit)? = null) {
-        if (BuildConfig.YOUTUBE_API_KEY.isBlank()) {
-            error = "Add YOUTUBE_API_KEY in GitHub Actions secrets (or a Gradle property) after enabling YouTube Data API v3."
-        }
         pendingYoutubeAction = action
         status = "Requesting Google account permission for YouTube…"
         val request = AuthorizationRequest.builder()
@@ -509,7 +506,7 @@ private fun ProviderCard(
             Text(subtitle, color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
             if (!configured && !connected) {
                 Text(
-                    if (title == "Spotify") "Needs Spotify Developer Client ID configuration." else "Needs YouTube Data API v3 configuration for catalogue search.",
+                    if (title == "Spotify") "Needs Spotify Developer Client ID configuration." else "Enable YouTube Data API v3 in the Google Cloud project linked to your Android OAuth client.",
                     color = Color(0xFFFFD18B),
                     style = MaterialTheme.typography.labelSmall
                 )
