@@ -1,3 +1,5 @@
+import java.util.Base64
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -40,7 +42,7 @@ if (ciSigningEnabled && ciSigningValues.any { it.isBlank() }) {
 val ciSigningStoreFile = layout.buildDirectory.file("ci-signing/unifiedmusic.jks").get().asFile
 if (ciSigningEnabled) {
     ciSigningStoreFile.parentFile.mkdirs()
-    ciSigningStoreFile.writeBytes(java.util.Base64.getMimeDecoder().decode(ciSigningStoreBase64))
+    ciSigningStoreFile.writeBytes(Base64.getMimeDecoder().decode(ciSigningStoreBase64))
 }
 
 android {
