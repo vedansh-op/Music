@@ -875,7 +875,7 @@ private fun ProviderHubScreen(
             }
             if (guestMode) {
                 item { GuestModeBanner() }
-            } else if (!youtubeConnected && !spotifyConnected) {
+            } else if (!youtubeConnected) {
                 item {
                     GuestFallbackCard(onContinueAsGuest = onContinueAsGuest)
                 }
@@ -891,7 +891,7 @@ private fun ProviderHubScreen(
             item {
                 ProviderCard(
                     title = "YouTube",
-                    subtitle = "Google account · YouTube catalogue and visible YouTube player",
+                    subtitle = "Connect Google for your personal playlists and liked videos. Public discovery can work as a guest.",
                     connected = youtubeConnected,
                     configured = youtubeConfigured,
                     busy = busy,
@@ -902,7 +902,7 @@ private fun ProviderHubScreen(
             item {
                 ProviderCard(
                     title = "Spotify",
-                    subtitle = "Spotify account · Search and play through the Spotify app",
+                    subtitle = "Optional Spotify account · Search and playback through the Spotify app",
                     connected = spotifyConnected,
                     configured = spotifyConfigured,
                     busy = busy,
@@ -964,7 +964,13 @@ private fun ProviderHubScreen(
                 ) {
                     if (busy) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = HubBackground)
                     else Icon(Icons.Default.Link, contentDescription = null)
-                    Text(if (guestMode) "  Search YouTube as Guest" else "  Search YouTube + Spotify")
+                    Text(
+                        when {
+                            guestMode -> "  Search YouTube as Guest"
+                            spotifyConnected -> "  Search YouTube + Spotify"
+                            else -> "  Search YouTube"
+                        }
+                    )
                 }
             }
             if (results.isEmpty() && !busy) {
