@@ -1,42 +1,64 @@
 # Unified Music — Android music player
 
-A native Android music player built with Kotlin, Jetpack Compose, and AndroidX Media3.
+Unified Music is a native Android music app built with Kotlin, Jetpack Compose and AndroidX Media3. The account hub integrates **YouTube and Spotify only**. Audius is not part of the new account hub.
 
-## Implemented
+## Current app structure
 
-- Scans and plays audio stored on the device through Android MediaStore.
-- Performs library scanning on an IO dispatcher so large libraries do not block the UI.
-- Provides queue browsing, previous/next, seek, shuffle/repeat, mini-player, and full Now Playing screen.
-- Displays album artwork when provided by Android MediaStore or Audius.
-- Saves liked local tracks and user-created local playlists using Preferences DataStore.
-- Supports create/delete playlists, add/remove local tracks, and playlist-specific playback queues.
-- Searches the local library and Audius's public catalogue, then streams eligible Audius tracks inside the app's Media3 player.
-- Loads weekly trending Audius tracks on Home and plays them in their own queue.
-- GitHub Actions runs JVM unit tests before compiling and uploading a debug APK.
+- The account hub is the launcher screen.
+- YouTube: Google account authorization with the `youtube.readonly` scope, YouTube Data API search, and a visible embedded YouTube player for playback.
+- Spotify: Spotify Authorization Code with PKCE, encrypted token storage, Spotify Web API track search, and Spotify App Remote playback through the official Spotify app.
+- The existing local music library, local playlists and Media3 player are still in the project and can be opened from the hub.
 
-## Online music provider
+## Provider playback boundaries
 
-The first in-app streaming adapter is Audius, using the provider's track-search and track-stream routes. Search results are marked **AUDIUS** and streamed directly inside the player. The player links to the original Audius track when the provider supplies a permalink. Only tracks marked streamable by the provider are offered. Provider availability and individual track availability can change.
+- YouTube playback remains inside the standard visible YouTube player with its normal controls and ads. The app does not extract audio, hide the player, or provide background playback for YouTube videos.
+- Spotify playback is controlled through Spotify App Remote and is performed by the Spotify app. It is not a direct Spotify audio stream inside Media3. Spotify's Android App Remote SDK requires the Spotify app to be installed and the app to be registered in Spotify Developer Dashboard.
+- Spotify Development Mode currently requires the developer to have Spotify Premium and limits a client ID to up to five authorized users; Spotify's developer rules can change. See Spotify's current developer access update before configuring access.
+- This project is a personal/non-commercial integration. Spotify's platform terms prohibit using its platform to build a commercial streaming integration.
 
-The app uses Audius's public discovery-provider endpoint first and falls back to its public API endpoint. A read-only API key can be provided via the GitHub Actions **AUDIUS_API_KEY** secret to improve rate limits. **Anything injected into BuildConfig is packaged into the APK and can be extracted**: only use a public/client key intended for distribution. Never embed an API secret, bearer token, or write credential. The app does not sign in to Audius accounts.
+## One-time setup
 
-**This is not YouTube Music integration.** YouTube's official API policies do not allow an API client to separate audio from videos or enable background playback of YouTube video content. A future YouTube feature must use an authorized, policy-compliant playback experience. Spotify playback also needs its own authorized SDK/integration.
+### Spotify
 
-## Current limitations
+1. Create an app in [Spotify Developer Dashboard](https://developer.spotify.com/dashboard).
+2. Select Android for the integration and register package name `com.vedansh.unifiedmusic` with the app's signing fingerprint.
+3. Add this exact redirect URI: `unifiedmusic://spotify/callback`.
+4. Add the Spotify app's Client ID as the GitHub Actions repository secret `SPOTIFY_CLIENT_ID`. Do not add a client secret; this Android app uses PKCE.
+5. Install the Spotify app on the test phone and sign in to the account you want to use.
 
-- Audius search/playback depends on the provider and network; individual tracks may not be available in every region.
-- Favourites and playlists are local to this installation and store MediaStore track IDs; they do not sync with Audius or another device.
-- Lyrics, recommendations, online playlist sync, offline downloads, and Audius account sign-in are not implemented.
-- CI confirms compilation and JVM unit tests; it does not replace installing the APK on a physical device and trying local/streamed tracks.
-- The artifact is a debug APK, not a Play Store release, and is retained for 14 days.
+### YouTube / Google
 
-## Download the APK without Android Studio
+1. In [Google Cloud Console](https://console.cloud.google.com/), create or select a project and enable **YouTube Data API v3**.
+2. Configure the OAuth consent screen and add your Google account as a test user while the app is in testing.
+3. Register an Android OAuth client for package `com.vedansh.unifiedmusic` and the signing certificate SHA-1 used by the installed APK.
+4. Create an API key for YouTube Data API v3 and add it as the GitHub Actions repository secret `YOUTUBE_API_KEY`.
+5. On first connect, tap **Connect Google** in the app and approve the YouTube read-only permission in Google's own authorization UI.
 
-1. Open the repository's **Actions** tab.
-2. Open the latest successful **Build Android APK** run.
-3. Download the **UnifiedMusic-debug-apk** artifact and extract **app-debug.apk**.
-4. Transfer it to your Android phone and allow installation from the file manager/browser if Android prompts you.
+The SHA-1 value must match the build that is installed. For a locally built APK, get it from Android Studio's Gradle signing report. If you use a different release keystore, register that certificate fingerprint as well.
 
-## Structure
+## Build
 
-Provider requests live in AudiusCatalog; Compose screens call the catalog interface rather than networking directly. The local library and online catalogue remain separate track sources so a non-playable demo row cannot masquerade as a stream.
+GitHub Actions downloads the official Spotify App Remote AAR, runs JVM unit tests, builds the debug APK, and uploads it as the `UnifiedMusic-debug-apk` artifact. The build works without the provider secrets, but account connections/search need those credentials configured.
+
+For local builds, first run:
+
+```sh
+sh scripts/setup-spotify-sdk.sh
+gradle :app:testDebugUnitTest :app:assembleDebug
+```
+
+Provide local credentials as Gradle properties or environment variables:
+
+- `SPOTIFY_CLIENT_ID` (or Gradle property `spotifyClientId`)
+- `YOUTUBE_API_KEY` (or Gradle property `youtubeApiKey`)
+
+## Privacy and credential handling
+
+- Users authenticate with Google and Spotify directly through the providers' own consent screens. The app never asks for provider passwords.
+- Spotify access and refresh tokens are stored in Android encrypted shared preferences.
+- Google access tokens are held in memory and requested again through Google Identity when required.
+- Never commit API keys, OAuth secrets, refresh tokens or user credentials to the repository.
+
+## Existing local player
+
+The original `MainActivity` remains available for on-device audio, local playlists, liked local tracks, queue controls and Media3 playback. The account hub links to it without moving provider audio into the local player.
