@@ -1,6 +1,6 @@
 # Unified Music — Android music player
 
-Unified Music is a native Android music app built with Kotlin, Jetpack Compose and AndroidX Media3. The account hub integrates **YouTube and Spotify only**. Audius is not part of the new account hub.
+Unified Music is a native Android music app built with Kotlin, Jetpack Compose and AndroidX Media3. The account hub integrates **YouTube and Spotify**.
 
 ## Current app structure
 
