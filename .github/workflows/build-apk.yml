@@ -43,13 +43,17 @@ jobs:
         run: |
           gradle :app:testDebugUnitTest :app:assembleDebug
 
-      - name: Print debug signing certificate SHA-1
+      - name: Print APK signing certificate SHA-1
+        shell: bash
         run: |
-          keytool -list -v \
-            -keystore "$HOME/.android/debug.keystore" \
-            -alias androiddebugkey \
-            -storepass android -keypass android \
-            | grep -E "SHA1:|SHA-1:|SHA256:|SHA-256:"
+          set -euo pipefail
+          sdk_dir="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-$HOME/Android/Sdk}}"
+          apksigner="$(find "$sdk_dir/build-tools" -type f -name apksigner 2>/dev/null | sort -V | tail -n 1)"
+          if [[ -z "$apksigner" ]]; then
+            echo "Could not locate apksigner under $sdk_dir/build-tools"
+            exit 1
+          fi
+          "$apksigner" verify --print-certs app/build/outputs/apk/debug/app-debug.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
