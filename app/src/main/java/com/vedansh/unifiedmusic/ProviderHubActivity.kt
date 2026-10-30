@@ -203,6 +203,11 @@ class ProviderHubActivity : ComponentActivity() {
         if (!guestMode) restoreYouTubeConnectionSilently()
     }
 
+    override fun onResume() {
+        super.onResume()
+        guestSuggestions = guestTaste.suggestions()
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
