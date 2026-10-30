@@ -210,7 +210,7 @@ class ProviderHubActivity : ComponentActivity() {
             }
         }
         handleSpotifyRedirect(intent?.data)
-        if (!guestMode) restoreYouTubeConnectionSilently()
+        if (!guestMode && !showWelcome) restoreYouTubeConnectionSilently()
     }
 
     override fun onResume() {
@@ -902,8 +902,8 @@ private fun ProviderHubScreen(
             }
             item {
                 ProviderCard(
-                    title = "YouTube",
-                    subtitle = "Optional Google account · Personal YouTube Music library and liked songs. Guest search/playback works without it.",
+                    title = "YouTube Music",
+                    subtitle = "Optional Google account · Access your personal YouTube Music library and liked songs.",
                     connected = youtubeConnected,
                     configured = youtubeConfigured,
                     busy = busy,
