@@ -24,7 +24,8 @@ data class StreamTrack(
     val artworkUrl: String?,
     val provider: StreamProvider,
     val playbackId: String,
-    val webUrl: String?
+    val webUrl: String?,
+    val durationMs: Long? = null
 )
 
 enum class StreamProvider { YOUTUBE, SPOTIFY }
