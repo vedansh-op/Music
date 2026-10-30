@@ -3,6 +3,7 @@ package com.vedansh.unifiedmusic.providers
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
+import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Request as OkHttpRequest
 import org.schabi.newpipe.extractor.NewPipe
 import org.schabi.newpipe.extractor.Page
@@ -117,7 +118,7 @@ object GuestYouTubeRepository {
 
         override fun execute(request: Request): Response {
             val requestBody = request.dataToSend()?.let { bytes ->
-                okhttp3.RequestBody.create(null, bytes)
+                bytes.toRequestBody(null)
             }
             val builder = OkHttpRequest.Builder()
                 .url(request.url())
