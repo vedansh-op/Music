@@ -38,7 +38,17 @@ This section is for the app publisher preparing builds. End users should never c
 5. On first connect, tap **Connect Google**. The app now opens an explicit account chooser, requests the `youtube.readonly` permission, then verifies the selected account by calling `channels.list(mine=true)`. A green connected state is shown only after this API check succeeds.
 6. For troubleshooting: Google status code `10` means the package/SHA-1 registration doesn't match; `403 access_denied` in OAuth test mode means the selected Google account must be added as a Test user; `accessNotConfigured` means YouTube Data API v3 is not enabled in the project; `quotaExceeded` means that project's YouTube quota has run out.
 
-The SHA-1 value must match the build that is installed. Each GitHub-hosted debug build may use a new debug signing key, so register the fingerprint for the exact APK you downloaded. For a locally built APK, get it from Android Studio's Gradle signing report. If you use a different release keystore, register that certificate fingerprint as well.
+The SHA-1 value must match the build that is installed. GitHub-hosted runners normally receive a fresh temporary debug key, which changes the fingerprint between clean runs. To make Google login stable across future APKs, configure one maintainer-owned CI signing key once:
+
+1. Generate a keystore locally with Java's `keytool` (keep the file and passwords private):
+   ```sh
+   keytool -genkeypair -v -keystore unifiedmusic-ci.jks -alias unifiedmusic -keyalg RSA -keysize 2048 -validity 10000
+   ```
+2. Base64-encode the keystore. On macOS/Linux: `base64 < unifiedmusic-ci.jks | tr -d '\\n'`. On Windows PowerShell: `[Convert]::ToBase64String([IO.File]::ReadAllBytes("unifiedmusic-ci.jks"))`.
+3. In GitHub, open **Settings → Secrets and variables → Actions** and add these four repository secrets: `ANDROID_SIGNING_KEYSTORE_BASE64` (the encoded keystore), `ANDROID_SIGNING_KEYSTORE_PASSWORD`, `ANDROID_SIGNING_KEY_ALIAS` (for the command above, `unifiedmusic`), and `ANDROID_SIGNING_KEY_PASSWORD`.
+4. Run the APK workflow again. It will sign the debug APK with that stable key and print the stable SHA-1/SHA-256. Register that SHA-1 once in the Android OAuth client for package `com.vedansh.unifiedmusic`.
+
+Until all four signing secrets are configured, CI intentionally falls back to a temporary debug key and prints a notice. This one-time signing setup is for the app maintainer only; app users never need to do it. Never commit the keystore or its passwords to GitHub. For a locally built APK, register the certificate that actually signed that APK.
 
 ## Build
 
