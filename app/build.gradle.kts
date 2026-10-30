@@ -4,11 +4,19 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
-val audiusApiKey = providers.environmentVariable("AUDIUS_API_KEY")
-    .orElse(providers.gradleProperty("audiusApiKey"))
+fun buildConfigLiteral(value: String): String {
+    val escaped = value.replace("\\", "\\\\").replace("\"", "\\\"")
+    return "\"" + escaped + "\""
+}
+
+val spotifyClientId = providers.environmentVariable("SPOTIFY_CLIENT_ID")
+    .orElse(providers.gradleProperty("spotifyClientId"))
     .orElse("")
     .get()
-val escapedAudiusApiKey = audiusApiKey.replace("\\", "\\\\").replace("\"", "\\\"")
+val youtubeApiKey = providers.environmentVariable("YOUTUBE_API_KEY")
+    .orElse(providers.gradleProperty("youtubeApiKey"))
+    .orElse("")
+    .get()
 
 android {
     namespace = "com.vedansh.unifiedmusic"
@@ -18,9 +26,10 @@ android {
         applicationId = "com.vedansh.unifiedmusic"
         minSdk = 29
         targetSdk = 35
-        versionCode = 3
-        versionName = "0.4.0"
-        buildConfigField("String", "AUDIUS_API_KEY", "\"" + escapedAudiusApiKey + "\"")
+        versionCode = 4
+        versionName = "0.5.0"
+        buildConfigField("String", "SPOTIFY_CLIENT_ID", buildConfigLiteral(spotifyClientId))
+        buildConfigField("String", "YOUTUBE_API_KEY", buildConfigLiteral(youtubeApiKey))
     }
 
     buildFeatures {
@@ -51,6 +60,10 @@ dependencies {
     implementation("androidx.room:room-runtime:2.6.1")
     implementation("androidx.datastore:datastore-preferences:1.1.2")
     implementation("io.coil-kt:coil-compose:2.7.0")
+    implementation("com.google.android.gms:play-services-auth:22.0.0")
+    implementation("androidx.security:security-crypto:1.1.0-alpha06")
+    implementation("com.google.code.gson:gson:2.11.0")
+    implementation(files("libs/spotify-app-remote-release-0.8.0.aar"))
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303")
