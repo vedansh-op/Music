@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
@@ -63,6 +64,7 @@ import com.vedansh.unifiedmusic.providers.SpotifyAuthRepository
 import com.vedansh.unifiedmusic.providers.StreamProvider
 import com.vedansh.unifiedmusic.providers.StreamTrack
 import com.vedansh.unifiedmusic.providers.YouTubeCatalog
+import com.vedansh.unifiedmusic.providers.YouTubePlaylist
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -84,6 +86,9 @@ class ProviderHubActivity : ComponentActivity() {
     private var busy by mutableStateOf(false)
     private var query by mutableStateOf("")
     private var results by mutableStateOf<List<StreamTrack>>(emptyList())
+    private var youtubePlaylists by mutableStateOf<List<YouTubePlaylist>>(emptyList())
+    private var youtubeLibraryBusy by mutableStateOf(false)
+    private var youtubeLibraryStatus by mutableStateOf("Load playlists from the Google account connected to YouTube.")
     private var status by mutableStateOf("Connect your own accounts to start searching.")
     private var error by mutableStateOf<String?>(null)
 
@@ -154,11 +159,16 @@ class ProviderHubActivity : ComponentActivity() {
                     busy = busy,
                     query = query,
                     results = results,
+                    youtubePlaylists = youtubePlaylists,
+                    youtubeLibraryBusy = youtubeLibraryBusy,
+                    youtubeLibraryStatus = youtubeLibraryStatus,
                     status = status,
                     error = error,
                     onQueryChange = { query = it },
                     onSpotifyClientIdChange = { spotifyClientId = it },
                     onSaveSpotifyClientId = { saveSpotifyClientId() },
+                    onLoadYouTubePlaylists = { loadYouTubePlaylists() },
+                    onYouTubePlaylistClick = { playlist -> openYouTubePlaylist(playlist) },
                     onConnectYouTube = { connectYouTube() },
                     onDisconnectYouTube = { disconnectYouTube() },
                     onConnectSpotify = { connectSpotify() },
@@ -306,6 +316,55 @@ class ProviderHubActivity : ComponentActivity() {
                     "YouTube was disconnected from this app. Google may still show an existing authorization grant."
                 }
             }
+    }
+
+    private fun loadYouTubePlaylists() {
+        youtubeLibraryBusy = true
+        youtubeLibraryStatus = "Authorizing Google and loading your playlists…"
+        requestYouTubeAuthorization(forceAccountSelection = false) { token ->
+            lifecycleScope.launch {
+                try {
+                    val playlists = withContext(Dispatchers.IO) {
+                        YouTubeCatalog.getMyPlaylists(token, BuildConfig.YOUTUBE_API_KEY)
+                    }
+                    youtubePlaylists = playlists
+                    youtubeLibraryStatus = if (playlists.isEmpty()) {
+                        "No public or account-owned playlists were returned for this YouTube account."
+                    } else {
+                        "Loaded ${playlists.size} playlists from your YouTube account."
+                    }
+                } catch (exception: Exception) {
+                    youtubeLibraryStatus = exception.message ?: "Couldn't load YouTube playlists."
+                } finally {
+                    youtubeLibraryBusy = false
+                }
+            }
+        }
+    }
+
+    private fun openYouTubePlaylist(playlist: YouTubePlaylist) {
+        youtubeLibraryBusy = true
+        youtubeLibraryStatus = "Loading ${playlist.title}…"
+        requestYouTubeAuthorization(forceAccountSelection = false) { token ->
+            lifecycleScope.launch {
+                try {
+                    val tracks = withContext(Dispatchers.IO) {
+                        YouTubeCatalog.getPlaylistTracks(
+                            playlistId = playlist.id,
+                            accessToken = token,
+                            apiKey = BuildConfig.YOUTUBE_API_KEY
+                        )
+                    }
+                    results = tracks
+                    status = "${playlist.title} · ${tracks.size} videos loaded."
+                    youtubeLibraryStatus = "Opened ${playlist.title}."
+                } catch (exception: Exception) {
+                    youtubeLibraryStatus = exception.message ?: "Couldn't open this playlist."
+                } finally {
+                    youtubeLibraryBusy = false
+                }
+            }
+        }
     }
 
     private fun saveSpotifyClientId() {
@@ -494,11 +553,16 @@ private fun ProviderHubScreen(
     busy: Boolean,
     query: String,
     results: List<StreamTrack>,
+    youtubePlaylists: List<YouTubePlaylist>,
+    youtubeLibraryBusy: Boolean,
+    youtubeLibraryStatus: String,
     status: String,
     error: String?,
     onQueryChange: (String) -> Unit,
     onSpotifyClientIdChange: (String) -> Unit,
     onSaveSpotifyClientId: () -> Unit,
+    onLoadYouTubePlaylists: () -> Unit,
+    onYouTubePlaylistClick: (YouTubePlaylist) -> Unit,
     onConnectYouTube: () -> Unit,
     onDisconnectYouTube: () -> Unit,
     onConnectSpotify: () -> Unit,
@@ -528,6 +592,16 @@ private fun ProviderHubScreen(
                     actionLabel = if (youtubeConnected) "Disconnect" else "Connect Google",
                     onAction = if (youtubeConnected) onDisconnectYouTube else onConnectYouTube
                 )
+            }
+            item {
+                YouTubeLibraryHeader(
+                    loading = youtubeLibraryBusy,
+                    status = youtubeLibraryStatus,
+                    onLoad = onLoadYouTubePlaylists
+                )
+            }
+            items(youtubePlaylists, key = { it.id }) { playlist ->
+                YouTubePlaylistRow(playlist, onClick = { onYouTubePlaylistClick(playlist) })
             }
             item {
                 ProviderCard(
@@ -599,6 +673,60 @@ private fun ProviderHubScreen(
                 )
                 Spacer(Modifier.height(24.dp))
             }
+        }
+    }
+}
+
+@Composable
+private fun YouTubeLibraryHeader(
+    loading: Boolean,
+    status: String,
+    onLoad: () -> Unit
+) {
+    Card(colors = CardDefaults.cardColors(containerColor = HubPanel), shape = RoundedCornerShape(18.dp)) {
+        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("YOUR YOUTUBE LIBRARY", color = HubAccent, style = MaterialTheme.typography.labelLarge)
+            Text("Browse playlists from the Google account you connect. This uses the official YouTube Data API.", color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
+            Button(
+                onClick = onLoad,
+                enabled = !loading,
+                colors = ButtonDefaults.buttonColors(containerColor = HubAccent, contentColor = HubBackground)
+            ) {
+                if (loading) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = HubBackground)
+                else Icon(Icons.Default.MusicNote, contentDescription = null)
+                Text("  Load my YouTube playlists")
+            }
+            Text(status, color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
+        }
+    }
+}
+
+@Composable
+private fun YouTubePlaylistRow(
+    playlist: YouTubePlaylist,
+    onClick: () -> Unit
+) {
+    Surface(
+        color = HubPanel,
+        shape = RoundedCornerShape(14.dp),
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick)
+    ) {
+        Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            if (!playlist.thumbnailUrl.isNullOrBlank()) {
+                AsyncImage(
+                    model = playlist.thumbnailUrl,
+                    contentDescription = null,
+                    modifier = Modifier.size(52.dp),
+                    contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                )
+            } else {
+                Icon(Icons.Default.MusicNote, contentDescription = null, tint = HubAccent, modifier = Modifier.size(52.dp))
+            }
+            Column(Modifier.weight(1f).padding(horizontal = 12.dp)) {
+                Text(playlist.title, color = Color.White, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text("${playlist.itemCount} videos", color = Color.LightGray, style = MaterialTheme.typography.bodySmall)
+            }
+            Icon(Icons.Default.PlayArrow, contentDescription = "Open playlist", tint = HubAccent)
         }
     }
 }
