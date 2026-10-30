@@ -48,6 +48,7 @@ import com.vedansh.unifiedmusic.catalog.LocalPlaylistsRepository
 import com.vedansh.unifiedmusic.catalog.Track
 import com.vedansh.unifiedmusic.catalog.TrackSource
 import com.vedansh.unifiedmusic.playback.MusicPlaybackService
+import com.vedansh.unifiedmusic.providers.GuestTasteRepository
 import coil.compose.AsyncImage
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -68,6 +69,7 @@ private fun UnifiedMusicApp() {
     val context = LocalContext.current
     val repository = remember { LocalMusicRepository(context.applicationContext) }
     val favoritesRepository = remember { FavoritesRepository(context.applicationContext) }
+    val guestTasteRepository = remember { GuestTasteRepository(context.applicationContext) }
     val favoriteIds by favoritesRepository.favoriteTrackIds.collectAsState(initial = emptySet())
     val playlistsRepository = remember { LocalPlaylistsRepository(context.applicationContext) }
     val playlists by playlistsRepository.playlists.collectAsState(initial = emptyList())
@@ -121,7 +123,9 @@ private fun UnifiedMusicApp() {
     fun toggleFavorite(track: Track) {
         if (track.source != TrackSource.LOCAL) return
         scope.launch {
-            favoritesRepository.setFavorite(track.id, track.id !in favoriteIds)
+            val addingFavorite = track.id !in favoriteIds
+            if (addingFavorite) guestTasteRepository.recordLike(track.title, track.artist)
+            favoritesRepository.setFavorite(track.id, addingFavorite)
         }
     }
 
@@ -320,6 +324,7 @@ private fun UnifiedMusicApp() {
         }
         val startIndex = playableTracks.indexOfFirst { it.id == track.id }
         if (queue.isEmpty() || startIndex < 0) return
+        guestTasteRepository.recordLocalPlay(track.title, track.artist)
         activeController.setMediaItems(queue, startIndex, C.TIME_UNSET)
         activeController.prepare()
         activeController.play()
