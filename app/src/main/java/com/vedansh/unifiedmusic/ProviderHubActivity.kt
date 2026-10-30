@@ -54,6 +54,7 @@ import coil.compose.AsyncImage
 import com.google.android.gms.auth.api.identity.AuthorizationRequest
 import com.google.android.gms.auth.api.identity.Identity
 import com.google.android.gms.auth.api.identity.RevokeAccessRequest
+import com.google.android.gms.common.api.ApiException
 import com.google.android.gms.common.api.Scope
 import com.spotify.android.appremote.api.ConnectionParams
 import com.spotify.android.appremote.api.Connector
@@ -88,35 +89,50 @@ class ProviderHubActivity : ComponentActivity() {
 
     private val googleAuthorizationLauncher =
         registerForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
-            if (result.resultCode == Activity.RESULT_OK && result.data != null) {
+            val returnedIntent = result.data
+            if (returnedIntent == null) {
+                youtubeConnected = false
+                error = if (result.resultCode == Activity.RESULT_CANCELED) {
+                    "Google sign-in was closed before it returned an authorization result. Check the OAuth test-user and consent-screen settings if this happened immediately after choosing an account."
+                } else {
+                    "Google sign-in returned no result (activity result code ${result.resultCode}). Try again and check the Google Cloud OAuth configuration."
+                }
+                busy = false
+                pendingYoutubeAction = null
+            } else {
                 runCatching {
-                    Identity.getAuthorizationClient(this).getAuthorizationResultFromIntent(result.data!!)
+                    Identity.getAuthorizationClient(this).getAuthorizationResultFromIntent(returnedIntent)
                 }.onSuccess { authorization ->
                     val token = authorization.accessToken
-                    if (!token.isNullOrBlank()) {
-                        youtubeConnected = true
-                        providerStatus.edit().putBoolean("youtube_connected", true).apply()
-                        status = "YouTube account connected."
-                        pendingYoutubeAction?.invoke(token)
-                    } else {
-                        error = "Google did not return YouTube access."
+                    val granted = authorization.grantedScopes
+                    if (token.isNullOrBlank()) {
+                        youtubeConnected = false
+                        error = "Google completed the account screen but returned no YouTube access token. Granted scopes: ${granted.joinToString().ifBlank { "none" }}."
                         busy = false
+                    } else if (!granted.contains(YOUTUBE_READ_ONLY_SCOPE)) {
+                        youtubeConnected = false
+                        error = "Google did not grant the YouTube read-only permission. Granted scopes: ${granted.joinToString().ifBlank { "none" }}. Reconnect and approve the requested YouTube permission."
+                        busy = false
+                    } else {
+                        val action = pendingYoutubeAction
+                        pendingYoutubeAction = null
+                        action?.invoke(token)
                     }
-                }.onFailure {
-                    error = "YouTube authorization was not completed: ${it.message.orEmpty()}"
+                }.onFailure { throwable ->
+                    youtubeConnected = false
+                    error = describeGoogleAuthorizationError(throwable)
                     busy = false
+                    pendingYoutubeAction = null
                 }
-            } else {
-                error = "YouTube authorization was cancelled."
-                busy = false
             }
-            pendingYoutubeAction = null
         }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         spotifyConnected = spotifyRepository.hasStoredSession()
-        youtubeConnected = providerStatus.getBoolean("youtube_connected", false)
+        // Do not trust a persisted boolean as proof of an active Google authorization.
+        // The account is marked connected only after a live token passes an API check.
+        youtubeConnected = false
         spotifyClientId = providerStatus.getString("spotify_client_id", BuildConfig.SPOTIFY_CLIENT_ID).orEmpty()
         setContent {
             MaterialTheme(
@@ -143,7 +159,7 @@ class ProviderHubActivity : ComponentActivity() {
                     onQueryChange = { query = it },
                     onSpotifyClientIdChange = { spotifyClientId = it },
                     onSaveSpotifyClientId = { saveSpotifyClientId() },
-                    onConnectYouTube = { requestYouTubeAuthorization() },
+                    onConnectYouTube = { connectYouTube() },
                     onDisconnectYouTube = { disconnectYouTube() },
                     onConnectSpotify = { connectSpotify() },
                     onDisconnectSpotify = { disconnectSpotify() },
@@ -168,57 +184,127 @@ class ProviderHubActivity : ComponentActivity() {
         super.onDestroy()
     }
 
-    private fun requestYouTubeAuthorization(action: ((String) -> Unit)? = null) {
+    private fun connectYouTube() {
+        error = null
+        busy = true
+        status = "Choose the Google account you want to connect…"
+        requestYouTubeAuthorization(forceAccountSelection = true) { token ->
+            lifecycleScope.launch {
+                try {
+                    val channel = withContext(Dispatchers.IO) {
+                        YouTubeCatalog.getAuthenticatedChannel(token, BuildConfig.YOUTUBE_API_KEY)
+                    }
+                    youtubeConnected = true
+                    status = if (channel.isNullOrBlank()) {
+                        "Google authorization works. YouTube account access was verified."
+                    } else {
+                        "Connected to YouTube as $channel."
+                    }
+                    error = null
+                } catch (exception: Exception) {
+                    youtubeConnected = false
+                    error = exception.message ?: "Google authorization succeeded, but YouTube account verification failed."
+                    status = "Google account selected; YouTube API verification failed."
+                } finally {
+                    busy = false
+                }
+            }
+        }
+    }
+
+    private fun requestYouTubeAuthorization(
+        forceAccountSelection: Boolean = false,
+        action: (String) -> Unit
+    ) {
         pendingYoutubeAction = action
-        status = "Requesting Google account permission for YouTube…"
-        val request = AuthorizationRequest.builder()
+        status = if (forceAccountSelection) {
+            "Opening Google account chooser…"
+        } else {
+            "Checking Google authorization for YouTube…"
+        }
+        val builder = AuthorizationRequest.builder()
             .setRequestedScopes(listOf(Scope(YOUTUBE_READ_ONLY_SCOPE)))
-            .build()
+        if (forceAccountSelection) {
+            builder.setPrompt(AuthorizationRequest.Prompt.SELECT_ACCOUNT)
+        }
         Identity.getAuthorizationClient(this)
-            .authorize(request)
+            .authorize(builder.build())
             .addOnSuccessListener { result ->
                 if (result.hasResolution()) {
                     val pendingIntent = result.pendingIntent
                     if (pendingIntent == null) {
-                        error = "Google did not provide an authorization screen."
+                        youtubeConnected = false
+                        error = "Google Play services requested an authorization screen but did not provide one. Update Google Play services and try again."
                         pendingYoutubeAction = null
                         busy = false
                     } else {
-                        googleAuthorizationLauncher.launch(
-                            IntentSenderRequest.Builder(pendingIntent.intentSender).build()
-                        )
+                        runCatching {
+                            googleAuthorizationLauncher.launch(
+                                IntentSenderRequest.Builder(pendingIntent.intentSender).build()
+                            )
+                        }.onFailure { throwable ->
+                            youtubeConnected = false
+                            error = describeGoogleAuthorizationError(throwable)
+                            pendingYoutubeAction = null
+                            busy = false
+                        }
                     }
                 } else {
                     val token = result.accessToken
-                    if (token.isNullOrBlank()) {
-                        error = "Google returned an empty YouTube access token."
+                    val granted = result.grantedScopes
+                    if (token.isNullOrBlank() || !granted.contains(YOUTUBE_READ_ONLY_SCOPE)) {
+                        youtubeConnected = false
+                        error = "Google did not return a usable YouTube token. Granted scopes: ${granted.joinToString().ifBlank { "none" }}."
+                        pendingYoutubeAction = null
                         busy = false
                     } else {
-                        youtubeConnected = true
-                        providerStatus.edit().putBoolean("youtube_connected", true).apply()
-                        status = "YouTube account connected."
-                        action?.invoke(token)
+                        val pendingAction = pendingYoutubeAction
+                        pendingYoutubeAction = null
+                        pendingAction?.invoke(token)
                     }
-                    pendingYoutubeAction = null
                 }
             }
             .addOnFailureListener { exception ->
-                error = "Google authorization failed: ${exception.message.orEmpty()}. Check the Android OAuth package name and signing SHA-1 in Google Cloud."
+                youtubeConnected = false
+                error = describeGoogleAuthorizationError(exception)
                 pendingYoutubeAction = null
                 busy = false
             }
     }
 
+    private fun describeGoogleAuthorizationError(throwable: Throwable): String {
+        val apiException = generateSequence(throwable) { it.cause }
+            .filterIsInstance<ApiException>()
+            .firstOrNull()
+        val code = apiException?.statusCode
+        val explanation = when (code) {
+            10 -> "Google reports DEVELOPER_ERROR. The installed APK package name or signing SHA-1 does not match the Android OAuth client. For this APK use package com.vedansh.unifiedmusic and verify its signing SHA-1 in the build details."
+            7 -> "Google reports NETWORK_ERROR. Check the phone's connection, date/time, and Google Play services."
+            8 -> "Google reports INTERNAL_ERROR. Update Google Play services and retry."
+            13 -> "Google reports a general authorization error. Check the OAuth consent screen, YouTube Data API enablement, and test-user access."
+            12500 -> "Google reports SIGN_IN_FAILED. Check the OAuth Android client package/SHA-1 and Google Cloud consent-screen configuration."
+            else -> "Google authorization failed. If the app's publishing status is Testing, only accounts listed under OAuth consent-screen Test users can authorize it."
+        }
+        val detail = throwable.localizedMessage?.takeIf { it.isNotBlank() }
+        val codeText = code?.let { " Google status code: $it." }.orEmpty()
+        return listOfNotNull(explanation + codeText, detail?.let { "Details: $it" }).joinToString("\n")
+    }
+
     private fun disconnectYouTube() {
+        youtubeConnected = false
+        busy = true
         val request = RevokeAccessRequest.builder()
             .setScopes(listOf(Scope(YOUTUBE_READ_ONLY_SCOPE)))
             .build()
         Identity.getAuthorizationClient(this)
             .revokeAccess(request)
-            .addOnCompleteListener {
-                youtubeConnected = false
-                providerStatus.edit().putBoolean("youtube_connected", false).apply()
-                status = "YouTube access disconnected."
+            .addOnCompleteListener { task ->
+                busy = false
+                status = if (task.isSuccessful) {
+                    "YouTube access disconnected."
+                } else {
+                    "YouTube was disconnected from this app. Google may still show an existing authorization grant."
+                }
             }
     }
 
@@ -339,7 +425,7 @@ class ProviderHubActivity : ComponentActivity() {
         busy = true
         status = "Searching YouTube and Spotify…"
 
-        requestYouTubeAuthorization { token ->
+        requestYouTubeAuthorization(forceAccountSelection = false) { token ->
             lifecycleScope.launch {
                 try {
                     val tracks = withContext(Dispatchers.IO) {
