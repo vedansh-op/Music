@@ -18,7 +18,7 @@ A native Android music player built with Kotlin, Jetpack Compose, and AndroidX M
 
 The first in-app streaming adapter is Audius, using the provider's track-search and track-stream routes. Search results are marked **AUDIUS** and streamed directly inside the player. The player links to the original Audius track when the provider supplies a permalink. Only tracks marked streamable by the provider are offered. Provider availability and individual track availability can change.
 
-For improved API stability/rate limits, create an Audius API key and add it as the GitHub Actions repository secret **AUDIUS_API_KEY**. The build injects it into the app and sends it in request headers. A public discovery-provider endpoint is tried as a fallback. Do not add an Audius bearer token to the Android app.
+The app uses Audius's public discovery-provider endpoint first and falls back to its public API endpoint. A read-only API key can be provided via the GitHub Actions **AUDIUS_API_KEY** secret to improve rate limits. **Anything injected into BuildConfig is packaged into the APK and can be extracted**: only use a public/client key intended for distribution. Never embed an API secret, bearer token, or write credential. The app does not sign in to Audius accounts.
 
 **This is not YouTube Music integration.** YouTube's official API policies do not allow an API client to separate audio from videos or enable background playback of YouTube video content. A future YouTube feature must use an authorized, policy-compliant playback experience. Spotify playback also needs its own authorized SDK/integration.
 

@@ -37,6 +37,7 @@ import androidx.core.content.ContextCompat
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
@@ -101,6 +102,7 @@ private fun UnifiedMusicApp() {
     var featuredError by remember { mutableStateOf<String?>(null) }
     var nowPlayingTitle by remember { mutableStateOf<String?>(null) }
     var nowPlayingArtist by remember { mutableStateOf<String?>(null) }
+    var playbackError by remember { mutableStateOf<String?>(null) }
     var nowPlayingSourceLabel by remember { mutableStateOf("On-device music") }
     var nowPlayingSourceUrl by remember { mutableStateOf<String?>(null) }
     var nowPlayingArtworkUri by remember { mutableStateOf<String?>(null) }
@@ -160,6 +162,22 @@ private fun UnifiedMusicApp() {
         pendingTrackForPlaylist = null
     }
 
+    fun refreshFeatured() {
+        scope.launch {
+            isLoadingFeatured = true
+            featuredError = null
+            try {
+                featuredTracks = catalog.trending()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                featuredError = "Couldn't load Audius trending right now. Check your connection and retry."
+            } finally {
+                isLoadingFeatured = false
+            }
+        }
+    }
+
     val permission = if (Build.VERSION.SDK_INT >= 33) {
         Manifest.permission.READ_MEDIA_AUDIO
     } else {
@@ -174,18 +192,7 @@ private fun UnifiedMusicApp() {
 
     LaunchedEffect(Unit) {
         if (repository.hasReadPermission()) refreshLocalTracks()
-        isLoadingFeatured = true
-        featuredError = null
-        try {
-            featuredTracks = catalog.trending()
-        } catch (cancelled: CancellationException) {
-            throw cancelled
-        } catch (_: Exception) {
-            featuredTracks = emptyList()
-            featuredError = "Audius trending is unavailable right now."
-        } finally {
-            isLoadingFeatured = false
-        }
+        refreshFeatured()
     }
 
     DisposableEffect(context) {
@@ -237,7 +244,18 @@ private fun UnifiedMusicApp() {
 
             val listener = object : Player.Listener {
                 override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                    playbackError = null
                     syncPlaybackState()
+                }
+
+                override fun onPlayerError(error: PlaybackException) {
+                    val isAudiusTrack = activeController.currentMediaItem?.mediaId?.startsWith("audius:") == true
+                    playbackError = if (isAudiusTrack) {
+                        "This Audius stream couldn't be played. Try another result or open its original track."
+                    } else {
+                        "This track couldn't be played. Check the file and try another track."
+                    }
+                    isPlaying = false
                 }
 
                 override fun onIsPlayingChanged(playing: Boolean) {
@@ -336,6 +354,7 @@ private fun UnifiedMusicApp() {
         queueSource: List<Track> = if (track.source == TrackSource.AUDIUS) onlineTracks else localTracks
     ) {
         val activeController = controller ?: return
+        playbackError = null
         val playableTracks = queueSource.filter {
             it.source == TrackSource.LOCAL || (it.source == TrackSource.AUDIUS && !it.streamUrl.isNullOrBlank())
         }
@@ -487,6 +506,7 @@ private fun UnifiedMusicApp() {
                         artworkUri = nowPlayingArtworkUri,
                         sourceLabel = nowPlayingSourceLabel,
                         sourceUrl = nowPlayingSourceUrl,
+                        playbackError = playbackError,
                         isPlaying = isPlaying,
                         positionMs = playbackPositionMs,
                         durationMs = durationMs,
@@ -800,6 +820,12 @@ private fun UnifiedMusicApp() {
                                             Text("TRENDING ON AUDIUS", color = Color.LightGray, style = MaterialTheme.typography.labelLarge)
                                             Text("Discover something new", color = Accent, style = MaterialTheme.typography.bodySmall)
                                         }
+                                        IconButton(
+                                            enabled = !isLoadingFeatured,
+                                            onClick = { refreshFeatured() }
+                                        ) {
+                                            Icon(Icons.Default.Refresh, "Refresh trending", tint = Accent)
+                                        }
                                         if (isLoadingFeatured) {
                                             CircularProgressIndicator(
                                                 modifier = Modifier.size(18.dp),
@@ -950,6 +976,7 @@ private fun NowPlayingScreen(
     artworkUri: String?,
     sourceLabel: String,
     sourceUrl: String?,
+    playbackError: String?,
     isPlaying: Boolean,
     positionMs: Long,
     durationMs: Long,
@@ -1024,6 +1051,13 @@ private fun NowPlayingScreen(
             TextButton(onClick = { uriHandler.openUri(sourceUrl) }) {
                 Text("Open original track on Audius", color = Accent)
             }
+        }
+        if (!playbackError.isNullOrBlank()) {
+            Text(
+                playbackError,
+                color = Color(0xFFFFB4AB),
+                style = MaterialTheme.typography.bodySmall
+            )
         }
         Spacer(Modifier.height(12.dp))
 
